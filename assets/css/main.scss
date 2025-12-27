@@ -1,0 +1,121 @@
+/* Main SCSS - Casino Chill Theme */
+
+@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap");
+
+:root {
+  /* Casino Palette */
+  --bg-color: #022c22; /* Deep Casino Green */
+  --surface-color: rgba(6, 78, 59, 0.85); /* Emerald 900 transparent */
+  --primary-color: #f59e0b; /* Amber 500 - Gold/Chips */
+  --secondary-color: #d97706; /* Amber 600 */
+  --accent-color: #ef4444; /* Red 500 - Cards/Hearts/Diamonds */
+  --text-main: #ecfdf5; /* Emerald 50 - White/Green tint */
+  --text-muted: #6ee7b7; /* Emerald 300 */
+
+  --radius-sm: 8px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+
+  --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.3),
+    0 2px 4px -1px rgba(0, 0, 0, 0.1);
+  --shadow-glow: 0 0 20px rgba(245, 158, 11, 0.4); /* Gold glow */
+}
+
+body {
+  background-color: var(--bg-color);
+  background-image: url("~/assets/img/casino_felt_texture.png");
+  background-repeat: repeat;
+  background-size: 500px; /* Adjust scale of texture */
+  background-blend-mode: overlay;
+  color: var(--text-main);
+  font-family: "Outfit", sans-serif;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+/* Chill Animations */
+@keyframes float {
+  0% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+  100% {
+    transform: translateY(0px);
+  }
+}
+
+.chill-btn {
+  background: linear-gradient(
+    135deg,
+    var(--primary-color),
+    var(--secondary-color)
+  );
+  border: 1px solid rgba(255, 230, 200, 0.3);
+  padding: .5rem 1rem;
+  border-radius: 50px; /* Chip style */
+  color: #fffbeb;
+  font-weight: 600;
+  font-size: 1.2rem;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5),
+    inset 0 2px 4px rgba(255, 255, 255, 0.2);
+
+  &:hover {
+    transform: translateY(-3px) scale(1.05);
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), var(--shadow-glow);
+    background: linear-gradient(135deg, #fbbf24, #b45309);
+  }
+
+  &:active {
+    transform: translateY(1px);
+  }
+}
+
+.glass-panel {
+  background: var(--surface-color);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-md);
+  padding: 2.5rem;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.page-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.5rem;
+}
+
+/* Card Graphic Utilities */
+.card-back {
+  width: 100px;
+  height: 150px;
+  background-image: url("~/assets/img/card_back.png");
+  background-position: top;
+  background-size: cover;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+// Utility: Loading Dots Animation
+.loading-dots::after {
+  content: '.';
+  animation: dots 1.5s steps(5, end) infinite;
+}
+
+@keyframes dots {
+  0%, 20% { content: '.'; }
+  40% { content: '..'; }
+  60% { content: '...'; }
+  80%, 100% { content: ''; }
+}
