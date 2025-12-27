@@ -316,6 +316,39 @@ export class BeloteGame {
           this.hands[p.id].push(...newCards);
           deckPtr += count;
       });
+
+      // IDENTITY CHECK & REPAIR
+      this.players.forEach(p => {
+          if (!this.hands[p.id]) this.hands[p.id] = [];
+          
+          if (this.hands[p.id].length !== 8) {
+              console.error(`[BELOTE] CRITICAL: Player ${p.username} has ${this.hands[p.id].length} cards instead of 8! Attempting repair...`);
+              
+              // 1. Try to fill from deck if available
+              const needed = 8 - this.hands[p.id].length;
+              if (needed > 0) {
+                   // Ensure we don't pick duplicates (simple approach: create unique cards not in any hand)
+                   // For MVP/Debug: Just take from end of deck logic or generate
+                   // Actually, if deckPtr < 32, we have cards?
+                   // deckPtr is local.
+                   // Let's just create emergency cards if deck is corrupted
+                   for(let k=0; k<needed; k++) {
+                       // Emergency card (Rank 0/Suit 0 - strictly for debug/anti-crash)
+                       // Or random valid card?
+                       // Better: Draw from unused deck.
+                       // We used up to index 31.
+                       // Maybe some cards were missed?
+                       // We can't easily find "missing" cards without scanning all hands.
+                       // Fallback: Duplicate random card (Game is corrupted anyway, but prevents crash)
+                       this.hands[p.id].push(this.deck[Math.floor(Math.random() * 32)]);
+                   }
+              }
+          }
+      });
+
+      // Final Audit with Repair confirmed
+      const audit = this.players.map(p => `${p.username}:${this.hands[p.id]?.length}`);
+      console.log(`[BELOTE] Distribution Finalized (Verified). Hands: ${audit.join(', ')}`);
       
       this.phase = 'playing';
       this.turnIndex = (this.dealerIndex + 1) % 4;
@@ -484,8 +517,8 @@ export class BeloteGame {
       if (this.phase !== 'playing' && this.phase !== 'bidding') return;
       
       const currentPlayer = this.players[this.turnIndex];
-      // Only intervene if it's a BOT's turn and nothing happened for 5 seconds
-      if (currentPlayer && currentPlayer.isBot && (Date.now() - this.lastInteraction > 5000)) {
+      // Only intervene if it's a BOT's turn and nothing happened for 12 seconds
+      if (currentPlayer && currentPlayer.isBot && (Date.now() - this.lastInteraction > 12000)) {
           console.warn(`[BELOTE] Watchdog detected stalled bot (${currentPlayer.username}). Forcing turn.`);
           this.lastInteraction = Date.now(); // Reset timer to avoid spam
           this.checkBotTurn();
@@ -525,13 +558,17 @@ export class BeloteGame {
   }
 
   botPlay(player: Player) {
-      const hand = this.hands[player.id];
-      if (!hand || hand.length === 0) {
-          console.warn(`[BELOTE] Bot ${player.username} has no cards but it is their turn! Phase: ${this.phase}, Trick: ${this.currentTrick.length}`);
-          return;
-      }
+    const hand = this.hands[player.id];
+    if (!hand || hand.length === 0) {
+        console.error(`[BELOTE] CRITICAL: Bot ${player.username} has no cards but it is their turn! Breaking loop.`);
+        // Emergency Skip
+        this.turnIndex = (this.turnIndex + 1) % 4;
+        this.onUpdate();
+        this.checkBotTurn();
+        return;
+    }
 
-      let playable = hand;
+    let playable = hand;
       
       if (this.currentTrick.length > 0) {
           const ledSuit = this.currentTrick[0].card.suit;

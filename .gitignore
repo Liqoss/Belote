@@ -21,4 +21,7 @@ logs
 # Local env files
 .env
 .env.*
-!.env.example
+
+# Deployment Keys
+deploy_key
+deploy_key.pub
