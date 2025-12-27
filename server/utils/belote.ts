@@ -347,6 +347,14 @@ export class BeloteGame {
   }
 
   processCardPlay(userId: string, cardId: string) {
+    const playerIndex = this.players.findIndex(p => p.id === userId);
+    
+    // Safety against race conditions or double-plays
+    if (playerIndex !== this.turnIndex) {
+        console.warn(`[BELOTE] Blocked out-of-turn play by ${userId} (Index ${playerIndex}). Current Turn: ${this.turnIndex}`);
+        return;
+    }
+
     const hand = this.hands[userId];
     const cardIndex = hand?.findIndex(c => c.id === cardId);
     
@@ -488,9 +496,9 @@ export class BeloteGame {
   checkBotTurn() {
     const player = this.players[this.turnIndex];
     if (player && player.isBot) {
-        // Delay for realism (1s to 2s)
-        const delay = 1000 + Math.random() * 1000;
-        setTimeout(() => {
+        // Delay for realism (2.5s to 4.5s) - Relaxed pace
+      const delay = 2500 + Math.random() * 2000;
+      setTimeout(() => {
             if (this.phase === 'bidding') this.botBid(player);
             if (this.phase === 'playing') this.botPlay(player);
         }, delay);

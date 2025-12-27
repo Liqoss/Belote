@@ -6,57 +6,68 @@ const socket = io("http://localhost:3000", {
   transports: ["websocket"],
 });
 
-const USERNAME = "SimAgent";
-let myId = "sim_" + Date.now();
+const USERNAME = "MimicUser";
+const MY_ID = "user_mimic_1"; // Fixed ID for reconnection testing
 let gameState: any = {};
 let myHand: any[] = [];
+let myLastTurn = -1;
 
-console.log("--- STARTING SIMULATION ---");
+console.log("--- STARTING ADVANCED SIMULATION (MimicUser) ---");
 
 socket.on("connect", () => {
-  console.log("Connected with ID:", socket.id);
-  socket.emit("join-game", { username: USERNAME, userId: myId });
+  console.log("Connected with Socket ID:", socket.id);
+  // Simulate "Lancer" button if strictly necessary? No, just join.
+  socket.emit("join-game", { username: USERNAME, userId: MY_ID });
 });
 
 socket.on("game-update", (state: any) => {
   gameState = state;
-  // Extract hand
-  if (state.hands && state.hands[myId]) {
-      myHand = state.hands[myId];
+  if (state.hands && state.hands[MY_ID]) {
+      myHand = state.hands[MY_ID];
   }
   
-  const myIndex = gameState.players.findIndex((p: any) => p.id === myId);
+  const myIndex = gameState.players.findIndex((p: any) => p.id === MY_ID);
   const turnIndex = gameState.turnIndex;
   
-  console.log(`[STATE] Phase: ${gameState.phase}, Turn: ${turnIndex}, MyIndex: ${myIndex}, HandSize: ${myHand.length}`);
+  // Detect Turn Skip
+  if (myLastTurn !== -1 && turnIndex !== myLastTurn && turnIndex !== myIndex) {
+      // Turn changed, and it's not me.
+      // Did I play?
+      // Simple logic: if I was TurnIndex, and now I am not, play was successful.
+  }
+  myLastTurn = turnIndex;
+
+  console.log(`[STATE] Phase: ${gameState.phase.toUpperCase()} | Turn: ${turnIndex} | Me: ${myIndex} (IsBot: ${gameState.players[myIndex]?.isBot}) | Hand: ${myHand.length}`);
+  
+  if (myIndex !== -1 && gameState.players[myIndex].isBot) {
+      console.error("!!! CRITICAL FAILURE: I AM FLAGGED AS A BOT !!!");
+      process.exit(1);
+  }
 
   if (state.phase === 'lobby' && gameState.players.length === 1) {
-      console.log("Lobby empty. Starting bots...");
+      console.log("Lobby empty. Adding bots to start...");
       socket.emit("start-game-bots");
   }
   
   if (state.phase === 'bidding' && turnIndex === myIndex) {
-      console.log("My Turn to Bid. Passing.");
+      console.log(">> MY TURN TO BID. Passing.");
       socket.emit("player-bid", { action: "pass" });
   }
 
+  if (state.phase === 'round_summary') {
+      console.log(">> ROUND END. Clicking Ready.");
+      socket.emit("player-ready");
+  }
+
   if (state.phase === 'playing' && turnIndex === myIndex) {
-      console.log("My Turn to Play!");
-      
-      // Find playable card
-      // Simplified rule: Just pick first card
+      console.log(">> MY TURN TO PLAY!");
        if (myHand.length > 0) {
            const card = myHand[0];
-           console.log("Playing card:", card.id);
+           console.log(`>> Attempting to play ${card.id}`);
            socket.emit("play-card", card.id);
        } else {
-           console.error("My Turn but NO CARDS!");
+           console.error("!! My Turn but NO CARDS in hand !!");
        }
-  }
-  
-  if (state.phase === 'round_summary') {
-      console.log("Round Summary. READYing up.");
-      socket.emit("player-ready");
   }
 });
 
@@ -64,8 +75,8 @@ socket.on("disconnect", () => {
     console.log("Disconnected.");
 });
 
-// Run for 30 seconds then exit
+// Run for 60 seconds
 setTimeout(() => {
-    console.log("--- SIMULATION END ---");
+    console.log("--- SIMULATION TIMEOUT ---");
     process.exit(0);
-}, 30000);
+}, 60000);

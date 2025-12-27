@@ -75,8 +75,9 @@
 
         <div class="board-layout">
            <!-- ME Trump Indicator (Top Right absolute) -->
-           <div v-if="gameState.bidTakerIndex === myIndex" 
-                class="taker-trump-indicator my-trump"
+           <!-- GLOBAL Trump Indicator (Top Right absolute) -->
+           <div v-if="gameState.trumpSuit" 
+                class="taker-trump-indicator global-trump"
                 style="position: absolute; top: 10px; right: 10px; z-index: 100;"
                 :class="{ 'red-suit': isRedSuit(gameState.trumpSuit), 'black-suit': !isRedSuit(gameState.trumpSuit) }">
                {{ getSuitIcon(gameState.trumpSuit) }}
@@ -245,7 +246,8 @@
             class="trick-card animating"
             :class="[
                 getPositionClass(play.playerId), 
-                animationPhase === 'flying' ? 'fly-to-' + getPositionClass(animatingTrick.winnerId) : ''
+                animationPhase === 'gathering' ? 'phase-gathering' : '',
+                animationPhase === 'flying' ? 'phase-flying fly-to-' + getPositionClass(animatingTrick.winnerId) : ''
             ]"
             :style="getFlyingStyle(play.playerId, animatingTrick.winnerId)"
         >
@@ -605,25 +607,39 @@ const playCard = (card: Card) => {
     height: 200px;
 }
 
+
 .trick-card {
     position: absolute;
-    transition: transform 0.3s;
+    /* Default transition for dealing */
+    transition: transform 0.3s ease-out;
 
     &.animating {
-      transition: all 1s ease-in-out;
+      /* Base state for animation layer */
       z-index: 100 !important;
       
-      &.fly-to-pos-top {
-          top: 10% !important; left: 50% !important; transform: translate(-50%, -50%) scale(0.5) !important; opacity: 0;
+      /* Phase 1: SHRINK (gathering) */
+      &.phase-gathering {
+          transition: all 0.5s ease-in-out;
+          
+          /* Force centering for ALL cards */
+          top: 50% !important;
+          left: 50% !important;
+          bottom: auto !important;
+          right: auto !important;
+          margin: 0 !important;
+          
+          transform: translate(-50%, -50%) scale(0.5) !important;
       }
-      &.fly-to-pos-bottom {
-          top: 90% !important; left: 50% !important; transform: translate(-50%, 50%) scale(0.5) !important; opacity: 0;
-      }
-      &.fly-to-pos-left {
-          top: 50% !important; left: 10% !important; transform: translate(-50%, -50%) scale(0.5) !important; opacity: 0;
-      }
-      &.fly-to-pos-right {
-          top: 50% !important; left: 90% !important; transform: translate(50%, -50%) scale(0.5) !important; opacity: 0;
+
+      /* Phase 2: FLY (flying) */
+      &.phase-flying {
+          transition: all 0.7s ease-in-out; 
+          opacity: 0;
+          
+          &.fly-to-pos-top { transform: translate(-50%, -40vh) scale(0.5) !important; }
+          &.fly-to-pos-bottom { transform: translate(-50%, 40vh) scale(0.5) !important; }
+          &.fly-to-pos-left { transform: translate(-45vw, -50%) scale(0.5) !important; }
+          &.fly-to-pos-right { transform: translate(45vw, -50%) scale(0.5) !important; }
       }
     }
 }

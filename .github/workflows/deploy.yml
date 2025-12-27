@@ -14,11 +14,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: "18"
+          node-version: "20"
           cache: "npm"
 
       - name: Install Dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
       - name: Build Application
         run: npm run build
@@ -43,8 +43,5 @@ jobs:
           port: 22
           script: |
             cd ~/belote-app
-            # Install prod dependencies if needed (though .output is standalone usually, it might need some runtime bindings)
-            # Actually Nuxt .output is standalone.
-            # We just need to restart PM2
-            pm2 reload belote-game || pm2 start ecosytem.config.cjs --name belote-game
+            pm2 reload belote-game || pm2 start ecosystem.config.cjs --name belote-game
             pm2 save

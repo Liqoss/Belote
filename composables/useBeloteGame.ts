@@ -88,21 +88,36 @@ export const useBeloteGame = () => {
     }
 
     // Animation Watcher
+    const ANIMATION_DURATION = {
+        SHRINK: 500,
+        FLY: 700
+    }
+
     watch(() => gameState.value.lastTrick, (newTrick) => {
         if (newTrick && newTrick.cards && newTrick.cards.length > 0) {
             const trickStr = JSON.stringify(newTrick)
             if (trickStr !== lastHandledTrick.value) {
                 lastHandledTrick.value = trickStr
                 animatingTrick.value = newTrick
-                animationPhase.value = 'idle'
+                
+                // Step 1: Initialize (Cards appear at table positions)
+                animationPhase.value = 'idle' 
                 
                 setTimeout(() => {
-                    animationPhase.value = 'flying'
+                    // Step 2: Shrink (distinct action as requested)
+                    animationPhase.value = 'gathering' // repurposing 'gathering' as 'shrink'
+                    
                     setTimeout(() => {
-                        animatingTrick.value = null
-                        animationPhase.value = 'idle'
-                    }, 1000) // 1s duration
-                }, 100) // Slight delay to allow DOM render of cards before flying
+                         // Step 3: Fly to winner
+                        animationPhase.value = 'flying'
+                        
+                        setTimeout(() => {
+                            // Step 4: Cleanup
+                            animatingTrick.value = null
+                            animationPhase.value = 'idle'
+                        }, ANIMATION_DURATION.FLY)
+                    }, ANIMATION_DURATION.SHRINK)
+                }, 100)
             }
         }
     })
