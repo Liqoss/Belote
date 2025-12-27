@@ -1,0 +1,50 @@
+name: Deploy to IONOS
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+          cache: "npm"
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Application
+        run: npm run build
+
+      - name: Deploy via SSH
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.IONOS_HOST }}
+          username: ${{ secrets.IONOS_USERNAME }}
+          key: ${{ secrets.IONOS_SSH_KEY }}
+          port: 22
+          source: ".output/,package.json,package-lock.json,ecosystem.config.cjs"
+          target: "~/belote-app"
+          strip_components: 0
+
+      - name: Restart Application
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.IONOS_HOST }}
+          username: ${{ secrets.IONOS_USERNAME }}
+          key: ${{ secrets.IONOS_SSH_KEY }}
+          port: 22
+          script: |
+            cd ~/belote-app
+            # Install prod dependencies if needed (though .output is standalone usually, it might need some runtime bindings)
+            # Actually Nuxt .output is standalone.
+            # We just need to restart PM2
+            pm2 reload belote-game || pm2 start ecosytem.config.cjs --name belote-game
+            pm2 save

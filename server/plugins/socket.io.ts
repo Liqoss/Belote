@@ -1,8 +1,10 @@
 import { Server as SocketServer } from 'socket.io'
 import type { NitroApp } from 'nitropack'
-import { BeloteGame, Card } from '../utils/belote'
+import { BeloteGame } from '../utils/belote'
 
 let io: SocketServer
+// Initialize game. The callback will be set later via io connection hook or we can wrap it.
+// Actually, since 'updateAll' depends on 'io', we execute it only when io exists.
 const game = new BeloteGame()
 
 export default defineNitroPlugin((nitroApp: NitroApp) => {
@@ -18,41 +20,64 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
           methods: ['GET', 'POST']
         }
       })
+      
+      // Helper to update everyone with their own view
+      const updateAll = () => {
+          if (!io) return
+          
+          // Construct Safe State (exclude sensitive info if needed, or strictly match GameState)
+          // For now, simpler: we send the public state.
+          const baseState = {
+              phase: game.phase,
+              players: game.players,
+              currentTrick: game.currentTrick,
+              lastTrick: game.lastTrick,
+              scores: game.scores,
+              currentScores: game.currentScores,
+              trumpSuit: game.trumpSuit,
+              turnedCard: game.turnedCard,
+              dealerIndex: game.dealerIndex,
+              turnIndex: game.turnIndex,
+              bidTakerIndex: game.bidTakerIndex,
+              biddingRound: game.biddingRound,
+              biddingHistory: game.biddingHistory,
+              readyPlayers: game.readyPlayers
+              // Hands are NOT sent in baseState
+          }
+
+          game.players.forEach(p => {
+              if (!p.isBot && p.socketId) {
+                  const s = io.sockets.sockets.get(p.socketId)
+                  if (s) {
+                      s.emit('game-update', { 
+                          ...baseState, 
+                          hands: { [p.id]: game.hands[p.id] || [] } // Send only THEIR hand
+                      })
+                  }
+              }
+          })
+      }
+
+      // Hook the update method
+      game.onUpdate = updateAll
 
       io.on('connection', (socket) => {
         console.log('New client connected:', socket.id)
 
-        const sendUpdate = () => {
-            const state = game.getState()
-            // Personalized view: only show own hand
-            // For MVP: client filters? No, secure it? 
-            // Let's send full state for simplicity now, but usually we filter 'hands'
-            const myHand = game.hands[socket.id] || []
-            socket.emit('game-update', { ...state, myHand })
-            
-            // Broadcast to others (generic update)
-            socket.broadcast.emit('public-update', state) // We might need a loop to update everyone individually
+        // Initial Update for this specific client
+        const player = game.players.find(p => p.socketId === socket.id) || game.players.find(p => !p.socketId && p.id === game.socketMap[socket.id])
+        
+        // If player known, send state
+        if (player) {
+             updateAll()
+        } else {
+            // Send empty/spectator state
+             socket.emit('game-update', { 
+                 phase: game.phase,
+                 players: game.players,
+                 // ... minimal state
+             })
         }
-        
-        // Helper to update everyone with their own view
-        const updateAll = () => {
-            const state = game.getState()
-            game.players.forEach(p => {
-                if (!p.isBot && p.socketId) {
-                    const s = io.sockets.sockets.get(p.socketId)
-                    if (s) {
-                        s.emit('game-update', { ...state, myHand: game.hands[p.id] || [] })
-                    }
-                }
-            })
-        }
-        
-        // Register update callback to Game Engine
-        game.setUpdateCallback(updateAll);
-        
-        // Initial Update
-        const state = game.getState()
-        socket.emit('game-update', { ...state, myHand: game.hands[game.socketMap[socket.id]] || [] })
 
         socket.on('join-game', (data: { username: string, userId: string }) => {
           game.addPlayer(socket.id, data.username, data.userId)
@@ -60,15 +85,12 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
         })
         
         socket.on('start-game-bots', () => {
-             // Only allow if admin (first player) ? socket map check? 
-             // For now allow any
              game.addBots()
              game.startGame()
              updateAll()
         })
 
         socket.on('start-game', () => {
-            console.log('Received start-game event');
             game.startGame()
             updateAll()
         })
@@ -83,20 +105,22 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
             updateAll()
         })
 
+        socket.on('player-ready', () => {
+            game.playerSetReady(socket.id)
+            updateAll()
+        })
+
         socket.on('disconnect', () => {
           console.log('Client disconnected:', socket.id)
           game.removePlayer(socket.id)
           updateAll()
         })
         
-        // Loop for Bot Moves AND Disconnect Timeouts
+        // Loop for Timeouts and Bot updates
+        // Note: game.checkBotTurn already uses internal timeouts, but checkDisconnects needs polling
         setInterval(() => {
-            game.checkDisconnects(); // Check for timeouts
-            
-            if (game.phase === 'playing' || game.phase === 'bidding') {
-                updateAll()
-             }
-        }, 1000)
+            game.checkStalled(); 
+        }, 5000)
       })
 
       // @ts-ignore

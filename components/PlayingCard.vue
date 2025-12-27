@@ -20,10 +20,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { Rank, Suit } from '~/types/belote'
 
 const props = defineProps<{
-  rank: string
-  suit: string
+  rank: Rank
+  suit: Suit
   clickable?: boolean
   disabled?: boolean
 }>()

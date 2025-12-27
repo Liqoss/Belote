@@ -1,7 +1,6 @@
-export type Suit = 'H' | 'D' | 'C' | 'S'; // Hearts, Diamonds, Clubs, Spades
-export type Rank = '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K' | 'A';
+import { type Suit, type Rank, type Card as ICard, type Player, type GameState } from '~/types/belote';
 
-export class Card {
+export class Card implements ICard {
   constructor(public suit: Suit, public rank: Rank) {}
 
   get id() {
@@ -23,70 +22,67 @@ export class Card {
       : { 'A': 8, '10': 7, 'K': 6, 'Q': 5, 'J': 4, '9': 3, '8': 2, '7': 1 };
     return order[this.rank];
   }
+
+  toJSON() {
+      return {
+          suit: this.suit,
+          rank: this.rank,
+          id: this.id
+      }
+  }
 }
 
 export class BeloteGame {
-  players: { 
-      id: string;      // Persistent User ID (or Bot ID)
-      socketId: string | null; // Current Socket ID
-      username: string; 
-      isBot: boolean;
-      disconnectedAt?: number;
-  }[] = [];
-  
-  // Maps socketId to userId for quick lookup
-  socketMap: Record<string, string> = {};
+  players: Player[] = [];
+  socketMap: Record<string, string> = {}; // socketId -> userId
 
   hands: Record<string, Card[]> = {};
   currentTrick: { playerId: string; card: Card }[] = [];
   lastTrick: { winnerId: string, cards: { playerId: string, card: Card }[] } | null = null;
+  
   scores: { team1: number; team2: number } = { team1: 0, team2: 0 };
   currentScores: { team1: number; team2: number } = { team1: 0, team2: 0 };
   roundSummary: { team1: number; team2: number } | null = null;
+  
   trumpSuit: Suit | null = null;
+  turnedCard: Card | null = null;
   
-  phase: 'lobby' | 'dealing' | 'bidding' | 'playing' = 'lobby';
+  phase: 'lobby' | 'dealing' | 'bidding' | 'playing' | 'round_summary' = 'lobby';
   
-  // Callback for state updates
-  onUpdate: () => void;
-
-  // Bidding History for UI
+  deck: Card[] = [];
+  dealerIndex: number = 0;
+  turnIndex: number = 0; 
+  biddingRound: 1 | 2 = 1;
+  bidTakerIndex: number | null = null;
   biddingHistory: { playerId: string, username: string, action: 'pass' | 'take', suit?: Suit }[] = [];
+  readyPlayers: string[] = [];
+  lastInteraction: number = Date.now();
+
+  onUpdate: () => void = () => { this.lastInteraction = Date.now(); };
 
   constructor(onUpdate?: () => void) {
       this.onUpdate = onUpdate || (() => {});
   }
   
-  setUpdateCallback(fn: () => void) {
-      this.onUpdate = fn;
-  }
-  
-  // Game State Internals
-  deck: Card[] = [];
-  dealerIndex: number = 0;
-  turnIndex: number = 0; 
-  
-  // Bidding Specific
-  turnedCard: Card | null = null;
-  biddingRound: 1 | 2 = 1;
-  bidTakerIndex: number | null = null;
+  // --- PLAYER MANAGEMENT ---
 
-  // Add/Reconnect Player
   addPlayer(socketId: string, username: string, userId: string) {
     const existingPlayer = this.players.find(p => p.id === userId);
     
     if (existingPlayer) {
         existingPlayer.socketId = socketId;
         existingPlayer.disconnectedAt = undefined;
+        existingPlayer.isBot = false; // Restore humanity
+        if (existingPlayer.username.startsWith('Bot (')) {
+             existingPlayer.username = username; // Restore name
+        }
         this.socketMap[socketId] = userId;
-        console.log(`Player ${username} reconnected.`);
+        console.log(`[BELOTE] Player ${username} reconnected (Was Bot? ${existingPlayer.isBot}).`);
         
-        // Resume game if it was waiting for players (e.g. paused bot turn)
         if (this.phase !== 'lobby') {
             this.checkBotTurn();
         }
     } else {
-        // New Player
         if (this.players.length < 4) {
             this.players.push({ 
                 id: userId, 
@@ -98,39 +94,14 @@ export class BeloteGame {
         }
     }
     
-    
-    // Rule: "Dès qu'un joueur arrive, si aucun autre n'est présent, tout est réinitialisé"
-    // Modified: If I am the ONLY connected HUMAN (ignoring bots), and the game has content (bots or ghosts), RESET.
+    // Auto-Reset if only one human is left/connected in a polluted lobby
     const humanCount = this.players.filter(p => !p.isBot && p.socketId).length;
-    
     if (humanCount === 1 && this.players.length > 1) {
-        console.log('Player is alone (Only human connected). Triggering Full Reset.');
+        console.log('[BELOTE] Only one human connected. Triggering clean reset.');
         this.fullReset();
-    } else if (existingPlayer && this.phase !== 'lobby') {
-         // Resume game if valid and it was waiting (Multiplayer case)
-         this.checkBotTurn();
     }
   }
   
-  fullReset() {
-      this.resetToLobby();
-      // Also remove disconnected humans so we start fresh
-      this.players = this.players.filter(p => p.isBot || p.socketId !== null);
-      // Actually, if we reset to lobby, we probably want to remove EVERYONE not connected, 
-      // so the lobby shows only the new arrival.
-      // But we keep Bots? 
-      // If I was alone with ghosts, I probably want to launch new bots.
-      // Let's keep Bots for now, or maybe remove them too if "tout réinitialiser".
-      // User said "Launch with bots" button needed.
-      // Let's just keep the connected human.
-      if (this.players.some(p => p.isBot)) {
-           // If there were bots, we effectively keep them as "active participants"
-           // So activeCount would be > 1.
-           // So this block only runs if I am alone with GHOST HUMANS.
-      }
-  }
-
-  // Handle Socket Disconnect
   removePlayer(socketId: string) {
     const userId = this.socketMap[socketId];
     if (!userId) return;
@@ -139,81 +110,53 @@ export class BeloteGame {
     if (player) {
         player.socketId = null;
         player.disconnectedAt = Date.now();
-        console.log(`Player ${player.username} disconnected. Waiting for reconnect...`);
-        
-        // MVP: If game hasn't started (lobby), maybe remove immediately? 
-        // User asked for "session", so let's keep them even in lobby for a bit?
-        // Actually for Lobby it's better to free up the slot if they don't come back fast.
-        // But the constraint is "2 min -> Bot".
+        console.log(`[BELOTE] Player ${player.username} disconnected.`);
     }
     delete this.socketMap[socketId];
   }
-  
-  // Check if any human is currently connected (socketId not null)
-  get hasConnectedHuman(): boolean {
-      return this.players.some(p => !p.isBot && p.socketId !== null);
-  }
 
-  // Periodic Cleanup
   checkDisconnects() {
       const NOW = Date.now();
       const TIMEOUT = 2 * 60 * 1000; // 2 minutes
-      
-      let humanCount = 0;
+      let activeHumans = 0;
       
       this.players.forEach((p, index) => {
           if (!p.isBot) {
-              if (p.socketId === null && p.disconnectedAt) {
-                  if (NOW - p.disconnectedAt > TIMEOUT) {
-                      console.log(`Player ${p.username} timed out. Replacing with Bot.`);
-                      this.replaceWithBot(index);
-                  } else {
-                      humanCount++; // Still a human, just disconnected temporarily
-                  }
+              if (p.socketId === null && p.disconnectedAt && (NOW - p.disconnectedAt > TIMEOUT)) {
+                  console.log(`[BELOTE] Player ${p.username} timed out. Swapping for Bot.`);
+                  this.replaceWithBot(index);
               } else {
-                  humanCount++; // Connected human
+                  activeHumans++;
               }
           }
       });
       
-      // If NO humans left (all bots), reset game to save resources/avoid zombie games
-      if (humanCount === 0 && this.phase !== 'lobby') {
-           console.log('No humans left in game. Resetting to lobby.');
+      if (activeHumans === 0 && this.phase !== 'lobby') {
+           console.log('[BELOTE] No humans left. Resetting game.');
            this.resetToLobby();
       }
   }
-  
+
   replaceWithBot(playerIndex: number) {
       const p = this.players[playerIndex];
-      // Convert to Bot
       p.isBot = true;
-      p.id = `bot_${Date.now()}_${playerIndex}`; // Change ID to avoid user reconnecting as this bot
-      p.username = `Bot (was ${p.username})`;
+      // Do NOT change ID, so user can reclaim it
+      // p.id = `bot_${Date.now()}_${playerIndex}`; 
+      p.username = `Bot (${p.username})`;
       p.socketId = null;
       p.disconnectedAt = undefined;
       
-      // If it was this player's turn, trigger bot check
       if (this.phase !== 'lobby' && this.turnIndex === playerIndex) {
           this.checkBotTurn();
       }
   }
-
-  addBots() {
-    const botNames = ['Trump', 'Macron', 'Poutine', 'Lepen', 'Mélenchon', 'Obama', 'Staline', 'Mandela'];
-    
-    while (this.players.length < 4) {
-      // Pick a name not already used
-      const usedNames = this.players.map(p => p.username);
-      const available = botNames.filter(n => !usedNames.includes(n));
-      const name = available.length > 0 
-        ? available[Math.floor(Math.random() * available.length)] 
-        : `Bot ${this.players.length + 1}`;
-        
-      const botId = `bot_${Date.now()}_${this.players.length}`;
-      this.players.push({ id: botId, socketId: null, username: name, isBot: true });
-    }
-  }
   
+  fullReset() {
+      this.resetToLobby();
+      // Keep only connected humans
+      this.players = this.players.filter(p => p.socketId !== null && !p.isBot);
+  }
+
   resetToLobby() {
       this.phase = 'lobby';
       this.scores = { team1: 0, team2: 0 };
@@ -224,17 +167,34 @@ export class BeloteGame {
       this.roundSummary = null;
       this.trumpSuit = null;
       this.turnedCard = null;
-      
-      // Remove bots so we can "Launch" again
+      this.biddingHistory = [];
+      // Remove bots so we can re-launch fresh
       this.players = this.players.filter(p => !p.isBot);
   }
 
-  startGame() {
-    console.log('BeloteGame.startGame called. Players:', this.players.length);
-    if (this.players.length !== 4) {
-        console.error('Cannot start game: Not enough players');
-        return;
+  addBots() {
+    const botNames = ['Trump', 'Macron', 'Poutine', 'Lepen', 'Mélenchon', 'Obama', 'Mandela'];
+    while (this.players.length < 4) {
+      const usedNames = this.players.map(p => p.username);
+      const available = botNames.filter(n => !usedNames.includes(n));
+      const name = available.length > 0 
+        ? available[Math.floor(Math.random() * available.length)] 
+        : `Bot ${this.players.length + 1}`;
+      
+      this.players.push({ 
+          id: `bot_${Date.now()}_${this.players.length}`, 
+          socketId: null, 
+          username: name, 
+          isBot: true 
+      });
     }
+  }
+
+  // --- GAME LOOP ---
+
+  startGame() {
+    if (this.players.length !== 4) return;
+    console.log('[BELOTE] Starting Game. Players:', this.players.map(p => `${p.username} (Bot:${p.isBot})`));
     this.scores = { team1: 0, team2: 0 };
     this.dealerIndex = Math.floor(Math.random() * 4);
     this.startRound();
@@ -244,24 +204,22 @@ export class BeloteGame {
     this.currentScores = { team1: 0, team2: 0 };
     this.trumpSuit = null;
     this.bidTakerIndex = null;
+    this.biddingHistory = [];
     
-    // Generate and Shuffle Deck
+    // Initialize Deck
     const suits: Suit[] = ['H', 'D', 'C', 'S'];
     const ranks: Rank[] = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
     this.deck = [];
     suits.forEach(s => ranks.forEach(r => this.deck.push(new Card(s, r))));
     this.shuffle(this.deck);
 
-    // 3. Start Dealing Phase (Animation)
     this.phase = 'dealing';
-    this.biddingHistory = []; // Reset history
     this.onUpdate();
-
     this.runDealingAnimation();
   }
 
   runDealingAnimation() {
-      // Step 1: Deal 3 cards to everyone
+      // Functional Dealing Steps with Delays
       setTimeout(() => {
           this.hands = {};
           this.players.forEach((p, i) => {
@@ -269,7 +227,6 @@ export class BeloteGame {
           });
           this.onUpdate();
 
-          // Step 2: Deal 2 more cards (total 5)
           setTimeout(() => {
               this.players.forEach((p, i) => {
                   const current = this.hands[p.id] || [];
@@ -278,7 +235,6 @@ export class BeloteGame {
               });
               this.onUpdate();
 
-              // Step 3: Reveal Turned Card & Start Bidding
               setTimeout(() => {
                   this.turnedCard = this.deck[20];
                   this.phase = 'bidding';
@@ -286,264 +242,34 @@ export class BeloteGame {
                   this.turnIndex = (this.dealerIndex + 1) % 4;
                   this.onUpdate();
                   this.checkBotTurn();
-              }, 2000);
-
-          }, 2000);
-      }, 1000);
+              }, 1500); // Reveal Turn Card
+          }, 1000); // Second Deal
+      }, 1000); // First Deal
   }
-  
+
+  // --- PLAY ACTIONS ---
+
   playerBid(socketId: string, action: 'take' | 'pass', suit?: Suit) {
       if (this.phase !== 'bidding') return;
+
       const userId = this.socketMap[socketId];
       if (!userId) return;
 
       const playerIndex = this.players.findIndex(p => p.id === userId);
-      if (playerIndex !== this.turnIndex) return;
-      
+      if (playerIndex !== this.turnIndex) return; // Not their turn
+
+      // Determine the effective suit for history
+      const recordedSuit = (action === 'take' && this.biddingRound === 1) 
+          ? this.turnedCard?.suit 
+          : suit;
+
+      this.processBid(playerIndex, action, recordedSuit);
+  }
+
+  processBid(playerIndex: number, action: 'take' | 'pass', suit?: Suit) {
       const player = this.players[playerIndex];
+      console.log(`[BELOTE] Bid: ${player.username} -> ${action} ${suit || ''}`);
 
-      // Determine suit for history (Round 1 = Turned Card)
-      const recordedSuit = (action === 'take' && this.biddingRound === 1) ? this.turnedCard?.suit : suit;
-      
-      console.log(`[BELOTE] Bid: ${username}/${action} Round:${this.biddingRound} Suit:${recordedSuit} (Turned:${this.turnedCard?.suit})`);
-
-      // Track History
-      this.biddingHistory.push({
-          playerId: userId,
-          username: player.username,
-          action: action,
-          suit: recordedSuit
-      });
-      
-      if (action === 'take') {
-          // Take logic
-          this.trumpSuit = this.biddingRound === 1 ? (this.turnedCard!.suit) : (suit || null);
-          if (!this.trumpSuit) return; // Must have suit for round 2
-          
-          this.bidTakerIndex = playerIndex;
-          this.finalizeDistribution();
-      } else {
-          // Pass logic
-          this.turnIndex = (this.turnIndex + 1) % 4;
-          
-          // Check if full circle done
-          if (this.turnIndex === (this.dealerIndex + 1) % 4) {
-              if (this.biddingRound === 1) {
-                  this.biddingRound = 2; // Start round 2
-              } else {
-                  // Everyone passed twice -> Redistribute
-                  this.dealerIndex = (this.dealerIndex + 1) % 4;
-                  this.startRound();
-                  return;
-              }
-          }
-          this.checkBotTurn();
-      }
-  }
-  
-  finalizeDistribution() {
-      // Rule: Taker gets the turned card + 2 extra cards.
-      // Everybody else gets 3 extra cards.
-      // Total cards: 32. 4*5=20 dealt. 1 turned. 11 remaining.
-      
-      const takerId = this.players[this.bidTakerIndex!].id;
-      
-      // Give turned card to Taker
-      if (this.turnedCard) {
-          this.hands[takerId].push(this.turnedCard);
-      }
-      
-      let deckPtr = 21;
-      
-      this.players.forEach((p, i) => {
-          // Taker starts with 5 + 1(turned) = 6. Needs 2 to reach 8.
-          // Others start with 5. Need 3 to reach 8.
-          const isTaker = (i === this.bidTakerIndex);
-          const count = isTaker ? 2 : 3;
-          
-          const newCards = this.deck.slice(deckPtr, deckPtr + count);
-          this.hands[p.id].push(...newCards);
-          deckPtr += count;
-      });
-      
-      this.phase = 'playing';
-      this.turnIndex = (this.dealerIndex + 1) % 4; // First to play (left of dealer)
-      this.currentTrick = [];
-      this.checkBotTurn();
-  }
-
-  playCard(socketId: string, cardId: string) {
-    console.log(`[PlayCard] Request from ${socketId} for card ${cardId}. Phase: ${this.phase}`);
-    if (this.phase !== 'playing') return;
-    
-    const userId = this.socketMap[socketId];
-    if (!userId) {
-        console.error(`[PlayCard] No userId found for socket ${socketId}`);
-        return;
-    }
-    
-    // Check if it's this user's turn
-    const player = this.players[this.turnIndex];
-    
-    // Check against userId (persistent) OR socketId (active session)
-    if (player.id !== userId && player.socketId !== socketId) {
-        console.warn(`[PlayCard] Blocking Move: Turn is ${player.username} (${player.id}), but Action from ${userId}/${socketId}`);
-        return; 
-    }
-
-    const hand = this.hands[userId];
-    if (!hand) {
-        console.error(`[PlayCard] No hand found for userId ${userId}`);
-        return;
-    }
-
-    const cardIndex = hand.findIndex(c => c.id === cardId);
-    if (cardIndex === -1) {
-        console.error(`[PlayCard] Card ${cardId} not found in hand.`);
-        return;
-    }
-    const card = hand[cardIndex];
-
-    hand.splice(cardIndex, 1);
-    this.currentTrick.push({ playerId: userId, card });
-    console.log(`[PlayCard] Success via ${player.username}. Trick size: ${this.currentTrick.length}`);
-    
-    this.onUpdate();
-
-    if (this.currentTrick.length === 4) {
-      setTimeout(() => this.resolveTrick(), 2500); // Visual delay increased for animation
-    } else {
-      this.turnIndex = (this.turnIndex + 1) % 4;
-      this.checkBotTurn();
-    }
-  }
-
-  resolveTrick() {
-    let bestCardInfo = this.currentTrick[0];
-    const ledSuit = bestCardInfo.card.suit;
-    
-    for (let i = 1; i < 4; i++) {
-        const challenge = this.currentTrick[i];
-        const best = bestCardInfo.card;
-        const chall = challenge.card;
-
-        const isBestTrump = best.suit === this.trumpSuit;
-        const isChallTrump = chall.suit === this.trumpSuit;
-
-        if (isChallTrump && !isBestTrump) {
-            bestCardInfo = challenge;
-        } else if (isChallTrump && isBestTrump) {
-            if (chall.getOrder(true) > best.getOrder(true)) bestCardInfo = challenge;
-        } else if (!isChallTrump && !isBestTrump) {
-            if (chall.suit === ledSuit && chall.getOrder(false) > best.getOrder(false)) {
-                bestCardInfo = challenge;
-            }
-        }
-    }
-
-    let points = 0;
-    this.currentTrick.forEach(t => points += t.card.getValue(t.card.suit === this.trumpSuit));
-    
-    const winnerIndex = this.players.findIndex(p => p.id === bestCardInfo.playerId);
-    
-    // Team Logic (0+2 vs 1+3)
-    const winningTeam = (winnerIndex % 2 === 0) ? 'team1' : 'team2';
-    this.currentScores[winningTeam] += points;
-
-    this.turnIndex = winnerIndex; 
-    
-    // Save last trick for animation/history
-    this.lastTrick = {
-        winnerId: bestCardInfo.playerId,
-        cards: [...this.currentTrick]
-    };
-    
-    // Clear current trick
-    this.currentTrick = [];
-
-    // NOTIFY UPDATE AFTER TRICK RESOLUTION
-    this.onUpdate();
-    
-    if (this.hands[this.players[0].id].length === 0) {
-        // End Round
-        this.currentScores[winningTeam] += 10; // Dix de der
-        this.scores.team1 += this.currentScores.team1;
-        this.scores.team2 += this.currentScores.team2;
-        
-        // Trigger Round Summary Modal
-        this.roundSummary = { ...this.currentScores };
-        this.onUpdate();
-
-        // TODO: Check for Game Win (1000 pts)
-        
-        this.dealerIndex = (this.dealerIndex + 1) % 4;
-        setTimeout(() => this.startRound(), 4000); // Increased delay to 4s for modal reading
-    } else {
-        this.checkBotTurn();
-    }
-  }
-
-  checkBotTurn() {
-    if (!this.hasConnectedHuman) {
-        console.log('No humans connected. Pausing bot turn.');
-        return;
-    }
-    const player = this.players[this.turnIndex];
-    if (player.isBot) {
-        setTimeout(() => {
-            if (this.phase === 'bidding') {
-                // ... Bidding Logic
-                const takeChance = Math.random();
-                // We use playerBid with a FAKE socket ID? No, we need internal method or bypass.
-                // Or just overload playerBid to accept ID? 
-                // Let's create internal helper or just modify logic to call logic directly.
-                // Refactor: playCard and playerBid take socketId BUT we can call invalid-socket for bot if we mock it?
-                // Better: Split logic.
-                
-                // Hack for MVP: Mock socket ID for bot? 
-                // Or just insert logic here directly.
-                if (this.biddingRound === 1 && takeChance > 0.8) {
-                    this._botBid(player, 'take');
-                } else if (this.biddingRound === 2 && takeChance > 0.9) {
-                     const suits: Suit[] = ['H', 'D', 'C', 'S'];
-                     const forbidden = this.turnedCard!.suit;
-                     const pick = suits.find(s => s !== forbidden) || 'H';
-                     this._botBid(player, 'take', pick);
-                } else {
-                    this._botBid(player, 'pass');
-                }
-            } else if (this.phase === 'playing') {
-                const hand = this.hands[player.id];
-                // Simplified Play Logic
-                let validCards = hand;
-                if (this.currentTrick.length > 0) {
-                     const ledSuit = this.currentTrick[0].card.suit;
-                     const hasSuit = hand.filter(c => c.suit === ledSuit);
-                     if (hasSuit.length > 0) validCards = hasSuit;
-                }
-                const card = validCards[Math.floor(Math.random() * validCards.length)];
-                
-                // Internal Play for Bot
-                const cardIndex = hand.indexOf(card);
-                hand.splice(cardIndex, 1);
-                this.currentTrick.push({ playerId: player.id, card });
-                
-                if (this.currentTrick.length === 4) {
-                    setTimeout(() => this.resolveTrick(), 1000);
-                } else {
-                    this.turnIndex = (this.turnIndex + 1) % 4;
-                    this.checkBotTurn();
-                }
-            }
-        }, 2000);
-    }
-  }
-  
-  // Helper for Bot Bidding to avoid Socket ID lookup issue
-  _botBid(player: any, action: 'take'|'pass', suit?: Suit) {
-      const playerIndex = this.players.findIndex(p => p.id === player.id);
-      
-      // Track Bot History
       this.biddingHistory.push({
           playerId: player.id,
           username: player.username,
@@ -551,16 +277,21 @@ export class BeloteGame {
           suit: suit
       });
 
-      if (action === 'take') {
-          this.trumpSuit = this.biddingRound === 1 ? (this.turnedCard!.suit) : (suit || null);
+      if (action === 'take' && suit) {
+          this.trumpSuit = suit;
           this.bidTakerIndex = playerIndex;
           this.finalizeDistribution();
-          console.log(`Bot ${player.username} took ${this.trumpSuit}`);
       } else {
+          // PASS
           this.turnIndex = (this.turnIndex + 1) % 4;
+          
+          // Check if round completed
           if (this.turnIndex === (this.dealerIndex + 1) % 4) {
-              if (this.biddingRound === 1) this.biddingRound = 2;
-              else {
+              if (this.biddingRound === 1) {
+                  this.biddingRound = 2;
+              } else {
+                  // Double Pass -> Redeal
+                  console.log('[BELOTE] All passed. Redealing.');
                   this.dealerIndex = (this.dealerIndex + 1) % 4;
                   this.startRound();
                   return;
@@ -568,6 +299,251 @@ export class BeloteGame {
           }
           this.checkBotTurn();
       }
+      this.onUpdate();
+  }
+  
+  finalizeDistribution() {
+      const takerId = this.players[this.bidTakerIndex!].id;
+      if (this.turnedCard) {
+          this.hands[takerId].push(this.turnedCard);
+      }
+      
+      let deckPtr = 21;
+      this.players.forEach((p, i) => {
+          const isTaker = (i === this.bidTakerIndex);
+          const count = isTaker ? 2 : 3;
+          const newCards = this.deck.slice(deckPtr, deckPtr + count);
+          this.hands[p.id].push(...newCards);
+          deckPtr += count;
+      });
+      
+      this.phase = 'playing';
+      this.turnIndex = (this.dealerIndex + 1) % 4;
+      this.currentTrick = [];
+      this.checkBotTurn();
+  }
+
+  playCard(socketId: string, cardId: string) {
+    const userId = this.socketMap[socketId];
+    if (!userId) {
+        console.warn(`[BELOTE] playCard rejected: Unknown socket ${socketId}`);
+        return;
+    }
+    
+    const playerIndex = this.players.findIndex(p => p.id === userId);
+    console.log(`[BELOTE] playCard request: User=${this.players[playerIndex]?.username} (Index ${playerIndex}), Card=${cardId}, Phase=${this.phase}, Turn=${this.turnIndex}`);
+
+    if (this.phase !== 'playing') {
+        console.warn(`[BELOTE] playCard rejected: Wrong phase (${this.phase})`);
+        return;
+    }
+    
+    if (playerIndex !== this.turnIndex) {
+        console.warn(`[BELOTE] playCard rejected: Not your turn (Current: ${this.turnIndex})`);
+        return;
+    }
+
+    this.processCardPlay(userId, cardId);
+  }
+
+  processCardPlay(userId: string, cardId: string) {
+    const hand = this.hands[userId];
+    const cardIndex = hand?.findIndex(c => c.id === cardId);
+    
+    if (!hand || cardIndex === -1) {
+        console.error(`[BELOTE] Invalid card play: ${cardId} by ${userId}`);
+        return;
+    }
+
+    const card = hand[cardIndex];
+    hand.splice(cardIndex, 1);
+    
+    this.currentTrick.push({ playerId: userId, card });
+    this.onUpdate();
+
+    if (this.currentTrick.length === 4) {
+      setTimeout(() => {
+          try {
+              this.resolveTrick();
+          } catch (e) {
+              console.error('[BELOTE] CRITICAL ERROR in resolveTrick:', e);
+              // Attempt recovery?
+              this.turnIndex = (this.turnIndex + 1) % 4;
+              this.onUpdate();
+          }
+      }, 2000); 
+    } else {
+      const oldTurn = this.turnIndex;
+      this.turnIndex = (this.turnIndex + 1) % 4;
+      console.log(`[BELOTE] Turn advanced: ${oldTurn} -> ${this.turnIndex} (${this.players[this.turnIndex]?.username})`);
+      this.onUpdate(); // <--- CRITICAL FIX: Notify clients of new turn
+      this.checkBotTurn();
+    }
+  }
+
+  resolveTrick() {
+    // 1. Determine Winner
+    const winnerInfo = this.getTrickWinner(this.currentTrick, this.trumpSuit!);
+    
+    // 2. Count Points
+    let points = 0;
+    this.currentTrick.forEach(t => points += t.card.getValue(t.card.suit === this.trumpSuit));
+    
+    const winnerIndex = this.players.findIndex(p => p.id === winnerInfo.playerId);
+    const winningTeam = (winnerIndex % 2 === 0) ? 'team1' : 'team2';
+    this.currentScores[winningTeam] += points;
+    
+    // 3. Update State
+    this.turnIndex = winnerIndex;
+    console.log(`[BELOTE] Trick Won by ${winnerInfo.playerId} (Index ${winnerIndex}). New Turn: ${this.turnIndex}`);
+    this.lastTrick = {
+        winnerId: winnerInfo.playerId,
+        cards: [...this.currentTrick]
+    };
+    this.currentTrick = [];
+    this.onUpdate();
+    
+    // 4. Check End of Round
+    if (this.hands[this.players[0].id].length === 0) {
+        this.currentScores[winningTeam] += 10; // Dix de Der
+        this.scores.team1 += this.currentScores.team1;
+        this.scores.team2 += this.currentScores.team2;
+        
+        this.roundSummary = { ...this.currentScores };
+        this.phase = 'round_summary'; // Blocking phase
+        this.readyPlayers = []; // Reset ready state
+        this.dealerIndex = (this.dealerIndex + 1) % 4;
+        this.onUpdate();
+        // Wait for players to click Ready
+    } else {
+        this.checkBotTurn();
+    }
+  }
+
+  playerSetReady(socketId: string) {
+      const userId = this.socketMap[socketId];
+      if (!userId) return;
+      
+      if (this.phase !== 'round_summary' && this.phase !== 'lobby') return; // Can also be used in lobby if we want? Assuming round_summary for now.
+      
+      if (!this.readyPlayers.includes(userId)) {
+          this.readyPlayers.push(userId);
+      }
+      
+      this.checkAllReady();
+      this.onUpdate();
+  }
+
+  checkAllReady() {
+      // Filter only connected humans
+      const humans = this.players.filter(p => !p.isBot && p.socketId);
+      const allReady = humans.every(p => this.readyPlayers.includes(p.id));
+      
+      if (allReady && humans.length > 0) {
+          console.log('[BELOTE] All humans ready. Starting next round.');
+          this.startRound();
+      }
+  }
+  
+  getTrickWinner(trick: {playerId: string, card: Card}[], trump: Suit) {
+      const ledSuit = trick[0].card.suit;
+      let activeBest = trick[0];
+      
+      for (let i = 1; i < 4; i++) {
+          const challenge = trick[i];
+          const bestCard = activeBest.card;
+          const chalCard = challenge.card;
+          
+          const isBestTrump = bestCard.suit === trump;
+          const isChalTrump = chalCard.suit === trump;
+          
+          if (isChalTrump && !isBestTrump) {
+              activeBest = challenge;
+          } else if (isChalTrump && isBestTrump) {
+              if (chalCard.getOrder(true) > bestCard.getOrder(true)) activeBest = challenge;
+          } else if (!isChalTrump && !isBestTrump) {
+              if (chalCard.suit === ledSuit && chalCard.getOrder(false) > bestCard.getOrder(false)) {
+                  activeBest = challenge;
+              }
+          }
+      }
+      return activeBest;
+  }
+
+  // --- BOT LOGIC ---
+
+  checkStalled() {
+      if (this.phase !== 'playing' && this.phase !== 'bidding') return;
+      
+      const currentPlayer = this.players[this.turnIndex];
+      // Only intervene if it's a BOT's turn and nothing happened for 5 seconds
+      if (currentPlayer && currentPlayer.isBot && (Date.now() - this.lastInteraction > 5000)) {
+          console.warn(`[BELOTE] Watchdog detected stalled bot (${currentPlayer.username}). Forcing turn.`);
+          this.lastInteraction = Date.now(); // Reset timer to avoid spam
+          this.checkBotTurn();
+      }
+      this.checkDisconnects();
+  }
+
+  checkBotTurn() {
+    const player = this.players[this.turnIndex];
+    if (player && player.isBot) {
+        // Delay for realism (1s to 2s)
+        const delay = 1000 + Math.random() * 1000;
+        setTimeout(() => {
+            if (this.phase === 'bidding') this.botBid(player);
+            if (this.phase === 'playing') this.botPlay(player);
+        }, delay);
+    }
+  }
+
+  botBid(player: Player) {
+      const playerIndex = this.players.findIndex(p => p.id === player.id);
+      
+      // Basic AI
+      const roll = Math.random();
+      
+      if (this.biddingRound === 1 && roll > 0.8) {
+          const needed = this.turnedCard?.suit;
+          if (needed) this.processBid(playerIndex, 'take', needed);
+      } else if (this.biddingRound === 2 && roll > 0.9) {
+          const suits: Suit[] = ['H','D','C','S'];
+          const forbidden = this.turnedCard?.suit;
+          const pick = suits.find(s => s !== forbidden) || 'H';
+          this.processBid(playerIndex, 'take', pick);
+      } else {
+          this.processBid(playerIndex, 'pass');
+      }
+  }
+
+  botPlay(player: Player) {
+      const hand = this.hands[player.id];
+      if (!hand || hand.length === 0) {
+          console.warn(`[BELOTE] Bot ${player.username} has no cards but it is their turn! Phase: ${this.phase}, Trick: ${this.currentTrick.length}`);
+          return;
+      }
+
+      let playable = hand;
+      
+      if (this.currentTrick.length > 0) {
+          const ledSuit = this.currentTrick[0].card.suit;
+          const hasSuit = hand.filter(c => c.suit === ledSuit);
+          if (hasSuit.length > 0) playable = hasSuit;
+      }
+
+      // Safety check
+      if (playable.length === 0) {
+           console.warn(`[BELOTE] Bot ${player.username} has no playable cards (filters failed?!). Reverting to full hand.`);
+           playable = hand;
+      }
+
+      const cardToPlay = playable[Math.floor(Math.random() * playable.length)];
+      console.log(`[BELOTE] Bot ${player.username} playing ${cardToPlay.id}`);
+      this.processCardPlay(player.id, cardToPlay.id);
+  }
+
+  get hasConnectedHuman(): boolean {
+      return this.players.some(p => !p.isBot && p.socketId !== null);
   }
 
   shuffle(array: any[]) {
@@ -575,22 +551,5 @@ export class BeloteGame {
         const j = Math.floor(Math.random() * (i + 1));
         [array[i], array[j]] = [array[j], array[i]];
     }
-  }
-  
-  getState() {
-    return {
-        players: this.players,
-        currentTrick: this.currentTrick,
-        scores: this.scores,
-        currentScores: this.currentScores,
-        trumpSuit: this.trumpSuit,
-        phase: this.phase,
-        turnIndex: this.turnIndex,
-        dealerIndex: this.dealerIndex,
-        turnedCard: this.turnedCard,
-        biddingRound: this.biddingRound,
-        biddingHistory: this.biddingHistory,
-        lastTrick: this.lastTrick
-    };
   }
 }
