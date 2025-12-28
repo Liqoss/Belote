@@ -346,6 +346,11 @@ export class BeloteGame {
   }
   
   finalizeDistribution() {
+      // LOCK: Prevent double-execution
+      if (this.phase !== 'bidding') return;
+      this.phase = 'dealing'; 
+      this.onUpdate();
+
       const takerId = this.players[this.bidTakerIndex!].id;
       if (this.turnedCard) {
           this.hands[takerId].push(this.turnedCard);
@@ -361,37 +366,15 @@ export class BeloteGame {
       });
 
       // IDENTITY CHECK & REPAIR
-      this.players.forEach(p => {
-          if (!this.hands[p.id]) this.hands[p.id] = [];
-          
-          if (this.hands[p.id].length !== 8) {
-              console.error(`[BELOTE] CRITICAL: Player ${p.username} has ${this.hands[p.id].length} cards instead of 8! Attempting repair...`);
-              
-              // 1. Try to fill from deck if available
-              const needed = 8 - this.hands[p.id].length;
-              if (needed > 0) {
-                   // Ensure we don't pick duplicates (simple approach: create unique cards not in any hand)
-                   // For MVP/Debug: Just take from end of deck logic or generate
-                   // Actually, if deckPtr < 32, we have cards?
-                   // deckPtr is local.
-                   // Let's just create emergency cards if deck is corrupted
-                   for(let k=0; k<needed; k++) {
-                       // Emergency card (Rank 0/Suit 0 - strictly for debug/anti-crash)
-                       // Or random valid card?
-                       // Better: Draw from unused deck.
-                       // We used up to index 31.
-                       // Maybe some cards were missed?
-                       // We can't easily find "missing" cards without scanning all hands.
-                       // Fallback: Duplicate random card (Game is corrupted anyway, but prevents crash)
-                       this.hands[p.id].push(this.deck[Math.floor(Math.random() * 32)]);
-                   }
-              }
-          }
-      });
-
-      // Final Audit with Repair confirmed
+      // IDENTITY CHECK (Logging Only - No destructive repair)
       const audit = this.players.map(p => `${p.username}:${this.hands[p.id]?.length}`);
-      console.log(`[BELOTE] Distribution Finalized (Verified). Hands: ${audit.join(', ')}`);
+      console.log(`[BELOTE] Distribution Finalized. Hands: ${audit.join(', ')}`);
+      
+      // Validation: If any hand != 8, something is structurally wrong with dealing.
+      // We do NOT attempt to "repair" by adding random cards as that creates duplicates.
+      if (this.players.some(p => this.hands[p.id]?.length !== 8)) {
+          console.error('[BELOTE] CRITICAL: Hand size mismatch detected. Game state is likely corrupted.');
+      }
       
       this.onUpdate(); // Show chaos (unsorted but full hand)
 
@@ -498,19 +481,40 @@ export class BeloteGame {
     this.onUpdate();
     
     // 4. Check End of Round
-    if (this.hands[this.players[0].id].length === 0) {
+    // 4. Check End of Round
+    // Robust check: If ANY player has no cards, round ought to be over (assuming sync).
+    // Safest: Check the winner's hand (since they just played).
+    const isEndOfRound = this.hands[winnerInfo.playerId].length === 0;
+
+    if (isEndOfRound) {
+        // FORCE CLEANUP: Ensure all hands are empty to prevent "ghost card" desync
+        this.players.forEach(p => this.hands[p.id] = []);
+        
         this.currentScores[winningTeam] += 10; // Dix de Der
         this.scores.team1 += this.currentScores.team1;
         this.scores.team2 += this.currentScores.team2;
         
         this.roundSummary = { ...this.currentScores };
-        this.phase = 'round_summary'; // Blocking phase
-        this.readyPlayers = []; // Reset ready state
-        this.dealerIndex = (this.dealerIndex + 1) % 4;
+        
+        // CHECK VICTORY (501 Points)
+        if (this.scores.team1 >= 501 || this.scores.team2 >= 501) {
+             console.log('[BELOTE] Game Over. Target reached.');
+             this.phase = 'game_over';
+             this.readyPlayers = [];
+             // Ensure bots don't try to invoke play or updates
+        } else {
+             this.phase = 'round_summary'; // Blocking phase
+             this.readyPlayers = []; // Reset ready state
+             this.dealerIndex = (this.dealerIndex + 1) % 4;
+        }
+
         this.onUpdate();
         // Wait for players to click Ready
     } else {
-        this.checkBotTurn();
+        // Wait for visual cleanup (trick animation) before bot plays
+        setTimeout(() => {
+             this.checkBotTurn();
+        }, 1500);
     }
   }
 
@@ -582,8 +586,15 @@ export class BeloteGame {
   checkBotTurn() {
     const player = this.players[this.turnIndex];
     if (player && player.isBot) {
-        // Delay for realism (2.5s to 4.5s) - Relaxed pace
-      const delay = 2500 + Math.random() * 2000;
+        
+      // CRITICAL SAFETY: Do not schedule turn if hand is empty
+      if (this.phase === 'playing' && (!this.hands[player.id] || this.hands[player.id].length === 0)) {
+          console.warn(`[BELOTE] Skipped Bot Turn for ${player.username} (Hand Empty). Waiting for End-of-Round resolution.`);
+          return;
+      }
+
+      // Delay for realism (1.0s to 2.0s) - Requested speed
+      const delay = 1000 + Math.random() * 1000;
       setTimeout(() => {
             if (this.phase === 'bidding') this.botBid(player);
             if (this.phase === 'playing') this.botPlay(player);

@@ -27,7 +27,7 @@ export interface Trick {
 }
 
 export interface GameState {
-    phase: 'lobby' | 'dealing' | 'bidding' | 'playing' | 'round_summary';
+    phase: 'lobby' | 'dealing' | 'bidding' | 'playing' | 'round_summary' | 'game_over';
     players: Player[];
     currentTrick: Play[];
     lastTrick: Trick | null;

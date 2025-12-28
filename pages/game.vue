@@ -15,21 +15,26 @@
         </button>
       </div>
 
-      <!-- Round Summary Overlay -->
-      <div v-if="gameState.phase === 'round_summary'" class="glass-panel centered-overlay">
-          <h2>Fin de la Manche</h2>
+
+      <!-- Game Over Modal -->
+      <div v-if="gameState.phase === 'game_over'" class="glass-panel centered-overlay">
+          <h2>PARTIE TERMINÉE</h2>
+          <div class="winner-announcement">
+              <span v-if="gameState.scores.team1 > gameState.scores.team2">VICTOIRE ! 🏆</span>
+              <span v-else>DÉFAITE... 💀</span>
+          </div>
           <div class="scores-summary">
              <div class="team-score">
                  <span>Nous</span>
-                 <span class="score-value">{{ gameState.roundSummary?.team1 }}</span>
+                 <span class="score-value">{{ gameState.scores?.team1 }}</span>
              </div>
              <div class="vs">VS</div>
              <div class="team-score">
                  <span>Eux</span>
-                 <span class="score-value">{{ gameState.roundSummary?.team2 }}</span>
+                 <span class="score-value">{{ gameState.scores?.team2 }}</span>
              </div>
           </div>
-          <p class="next-round-text">Prochaine manche dans quelques secondes...</p>
+          <button @click="resetGame" class="chill-btn">Retour au Lobby</button>
       </div>
 
       <!-- Last Trick Modal -->
@@ -298,7 +303,8 @@ const {
     playCard: gamePlayCard,
     animatingTrick,
     animationPhase,
-    setReady
+    setReady,
+    resetGame
 } = useBeloteGame()
 
 const humanCount = computed(() => {
