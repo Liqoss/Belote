@@ -235,14 +235,21 @@ export class BeloteGame {
               });
               this.onUpdate();
 
+              // SORTING STEP (5 Cards)
               setTimeout(() => {
-                  this.turnedCard = this.deck[20];
-                  this.phase = 'bidding';
-                  this.biddingRound = 1;
-                  this.turnIndex = (this.dealerIndex + 1) % 4;
+                  this.sortHands();
                   this.onUpdate();
-                  this.checkBotTurn();
-              }, 1500); // Reveal Turn Card
+
+                  setTimeout(() => {
+                      this.turnedCard = this.deck[20];
+                      this.phase = 'bidding';
+                      this.biddingRound = 1;
+                      this.turnIndex = (this.dealerIndex + 1) % 4;
+                      this.onUpdate();
+                      this.checkBotTurn();
+                  }, 1000); // Reveal Turn Card
+              }, 1000); // Trigger Sort
+
           }, 1000); // Second Deal
       }, 1000); // First Deal
   }
@@ -350,10 +357,20 @@ export class BeloteGame {
       const audit = this.players.map(p => `${p.username}:${this.hands[p.id]?.length}`);
       console.log(`[BELOTE] Distribution Finalized (Verified). Hands: ${audit.join(', ')}`);
       
-      this.phase = 'playing';
-      this.turnIndex = (this.dealerIndex + 1) % 4;
-      this.currentTrick = [];
-      this.checkBotTurn();
+      this.onUpdate(); // Show chaos (unsorted but full hand)
+
+      // SORTING STEP (8 Cards)
+      setTimeout(() => {
+          this.sortHands();
+          this.phase = 'playing';
+          this.turnIndex = (this.dealerIndex + 1) % 4;
+          this.currentTrick = [];
+          this.onUpdate();
+          
+          setTimeout(() => {
+              this.checkBotTurn();
+          }, 1000);
+      }, 1500);
   }
 
   playCard(socketId: string, cardId: string) {
@@ -540,6 +557,7 @@ export class BeloteGame {
 
   botBid(player: Player) {
       const playerIndex = this.players.findIndex(p => p.id === player.id);
+      if (playerIndex !== this.turnIndex) return; // Safety Check
       
       // Basic AI
       const roll = Math.random();
@@ -558,6 +576,9 @@ export class BeloteGame {
   }
 
   botPlay(player: Player) {
+    const playerIndex = this.players.findIndex(p => p.id === player.id);
+    if (playerIndex !== this.turnIndex) return; // Safety Check
+
     const hand = this.hands[player.id];
     if (!hand || hand.length === 0) {
         console.error(`[BELOTE] CRITICAL: Bot ${player.username} has no cards but it is their turn! Breaking loop.`);
@@ -596,5 +617,21 @@ export class BeloteGame {
         const j = Math.floor(Math.random() * (i + 1));
         [array[i], array[j]] = [array[j], array[i]];
     }
+  }
+
+  sortHands() {
+      // Sort logic: Suit (H, C, D, S) then Rank (7,8,9,10,J,Q,K,A)
+      // Rank order for sorting visual doesn't need to depend on Trump (usually).
+      const suitOrder = { 'H': 0, 'C': 1, 'D': 2, 'S': 3 };
+      const rankOrder = { '7':0, '8':1, '9':2, '10':3, 'J':4, 'Q':5, 'K':6, 'A':7 };
+      
+      this.players.forEach(p => {
+          if (this.hands[p.id]) {
+              this.hands[p.id].sort((a, b) => {
+                  if (a.suit !== b.suit) return suitOrder[a.suit] - suitOrder[b.suit];
+                  return rankOrder[a.rank] - rankOrder[b.rank];
+              });
+          }
+      });
   }
 }

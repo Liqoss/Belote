@@ -78,7 +78,7 @@
            <!-- GLOBAL Trump Indicator (Top Right absolute) -->
            <div v-if="gameState.trumpSuit" 
                 class="taker-trump-indicator global-trump"
-                style="position: absolute; top: 10px; right: 10px; z-index: 100;"
+                style="position: absolute; top: 16px; right: 18px; z-index: 100;"
                 :class="{ 'red-suit': isRedSuit(gameState.trumpSuit), 'black-suit': !isRedSuit(gameState.trumpSuit) }">
                {{ getSuitIcon(gameState.trumpSuit) }}
            </div>
@@ -197,18 +197,30 @@
            <!-- BOTTOM PLAYER (Me) -->
            <div class="player-slot bottom" :class="{ active: isTurn(myIndex) }">
                <div v-if="isTurn(myIndex) && gameState.phase === 'playing'" class="my-turn-badge">⚡ À VOUS DE JOUER ! ⚡</div>
-               <div class="my-hand">
-                  <PlayingCard 
-                    v-for="card in sortedHand" 
+               <TransitionGroup 
+                 name="hand-card" 
+                 tag="div" 
+                 class="my-hand"
+               >
+                  <div 
+                    v-for="(card, index) in myHand" 
                     :key="card.id"
-                    :rank="card.rank" 
-                    :suit="card.suit"
-                    :clickable="true"
-                    :disabled="false"
+                    class="hand-card-wrapper"
+                    :style="{
+                        marginRight: (index === myHand.length - 1) ? '0px' : (dynamicMargin + 'px')
+                    }"
                     @click="tryPlayCard(card)"
-                    class="hand-card"
-                  />
-               </div>
+                  >
+                      <PlayingCard 
+                        :rank="card.rank" 
+                        :suit="card.suit" 
+                        :is-playable="isCardPlayable(card) && isTurn(myIndex) && gameState.phase === 'playing'"
+                        :clickable="true"
+                        :disabled="false"
+                        class="hand-card"
+                      />
+                  </div>
+               </TransitionGroup>
                <span class="player-name me">{{ username }} (Moi)</span>
                <div v-if="getBiddingStatus(myIndex)" class="bidding-status-text me-status">
                    {{ getBiddingStatus(myIndex) }}
@@ -263,7 +275,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useBeloteGame } from '~/composables/useBeloteGame'
 import PlayingCard from '~/components/PlayingCard.vue'
 import type { Card, Suit } from '~/types/belote'
@@ -444,13 +456,78 @@ const tryPlayCard = (card: Card) => {
 const playCard = (card: Card) => {
     gamePlayCard(card)
 }
+
+// --- DYNAMIC CARD OVERLAP ---
+const windowWidth = ref(1000)
+
+const updateWidth = () => {
+    if (typeof window !== 'undefined') {
+        windowWidth.value = window.innerWidth
+    }
+}
+
+onMounted(() => {
+    updateWidth()
+    window.addEventListener('resize', updateWidth)
+})
+
+onUnmounted(() => {
+    if (typeof window !== 'undefined') {
+        window.removeEventListener('resize', updateWidth)
+    }
+})
+
+const dynamicMargin = computed(() => {
+    const handSize = myHand.value.length
+    if (handSize <= 1) return 0
+    
+    // Config: Card width ~100px normally.
+    // Available width = Screen width - Padding (e.g. 20px on each side)
+    const availableWidth = Math.min(600, windowWidth.value - 40) 
+    // We cap at 600px for the hand area to keep it centered nice
+    
+    const cardWidth = 90 // Approximate visible width of a card
+    const totalRequired = handSize * cardWidth
+    
+    if (totalRequired <= availableWidth) {
+        return -30 // Default overlap if we have space
+    }
+    
+    // Calculate overlap needed to squeeze into availableWidth
+    // (n-1) * (cardWidth + overlap) + cardWidth = availableWidth
+    // (n-1) * overlap = availableWidth - n * cardWidth
+    // overlap = (availableWidth - n * cardWidth) / (n - 1)
+    
+    // Actually simpler: 
+    // We want the total span to be availWidth.
+    // Span = cardWidth + (n-1) * (visiblePart)
+    // visiblePart = cardWidth + margin
+    // margin = visiblePart - cardWidth
+    
+    // margin = (availableWidth - cardWidth) / (handSize - 1) - cardWidth
+    
+    const margin = (availableWidth - cardWidth) / (handSize - 1) - cardWidth
+    return Math.min(-30, margin) // Never spread more than -30, but compress if needed
+})
 </script>
 
 <style scoped lang="scss">
+/* Global reset for mobile scroll interaction */
+:global(html), :global(body) {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}
+
 .game-page {
   padding: 0;
+  width: 100%;
   height: 100vh;
   overflow: hidden;
+  position: relative;
 }
 
 .login-modal {
@@ -600,6 +677,53 @@ const playCard = (card: Card) => {
   justify-content: center;
 }
 
+/* --- HAND ANIMATIONS (SORTING/DEALING) --- */
+.hand-card-move,
+.hand-card-enter-active,
+.hand-card-leave-active {
+  transition: all 0.5s ease;
+}
+
+.hand-card-enter-from,
+.hand-card-leave-to {
+  opacity: 0;
+  transform: translateY(30px);
+}
+
+.hand-card-leave-active {
+  position: absolute; /* Ensures smooth sorting when items leave */
+}
+
+/* Ensure TransitionGroup container behaves like the old flexbox */
+.my-hand {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    /* Remove gap, handle overlap via margin on items */
+}
+
+.hand-card-wrapper {
+    /* Margin handled dynamically by JS style */
+    transition: transform 0.2s, margin-right 0.3s; 
+}
+
+.hand-card-wrapper:last-child {
+    /* Margin 0 handled by JS logic too for safety/consistency */
+}
+
+.hand-card-wrapper:hover {
+    z-index: 10;
+    transform: translateY(-10px);
+}
+
+@media (max-width: 600px) {
+    /* We keep the scale reduction but margin is now dynamic JS */
+    .my-hand {
+        transform: scale(0.9); 
+        transform-origin: bottom center;
+    }
+}
+
 /* Trick Display */
 .trick-area {
     position: relative;
@@ -644,8 +768,8 @@ const playCard = (card: Card) => {
     }
 }
 
-.pos-bottom { bottom: -50px; left: 50%; transform: translateX(-50%); z-index: 10; }
-.pos-top { top: -50px; left: 50%; transform: translateX(-50%); z-index: 1; }
+.pos-bottom { bottom: -70px; left: 50%; transform: translateX(-50%); z-index: 10; }
+.pos-top { top: -70px; left: 50%; transform: translateX(-50%); z-index: 1; }
 .pos-left { left: 0; top: 50%; transform: translateY(-50%) rotate(-45deg); z-index: 2; }
 .pos-right { right: 0; top: 50%; transform: translateY(-50%) rotate(45deg); z-index: 3; }
 
