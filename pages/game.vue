@@ -17,24 +17,27 @@
 
 
       <!-- Game Over Modal -->
-      <div v-if="gameState.phase === 'game_over'" class="glass-panel centered-overlay">
-          <h2>PARTIE TERMINÉE</h2>
-          <div class="winner-announcement">
-              <span v-if="gameState.scores.team1 > gameState.scores.team2">VICTOIRE ! 🏆</span>
-              <span v-else>DÉFAITE... 💀</span>
+      <!-- Game Over Modal -->
+      <div v-if="gameState.phase === 'game_over'" class="modal-overlay">
+          <div class="game-over-content glass-panel">
+              <h2>PARTIE TERMINÉE</h2>
+              <div class="winner-announcement">
+                  <span v-if="gameState.scores.team1 > gameState.scores.team2">VICTOIRE ! 🏆</span>
+                  <span v-else>DÉFAITE... 💀</span>
+              </div>
+              <div class="scores-summary">
+                 <div class="team-score">
+                     <span>Nous</span>
+                     <span class="score-value">{{ gameState.scores?.team1 }}</span>
+                 </div>
+                 <div class="vs">VS</div>
+                 <div class="team-score">
+                     <span>Eux</span>
+                     <span class="score-value">{{ gameState.scores?.team2 }}</span>
+                 </div>
+              </div>
+              <button @click="resetGame" class="chill-btn large-btn">Retour au Lobby</button>
           </div>
-          <div class="scores-summary">
-             <div class="team-score">
-                 <span>Nous</span>
-                 <span class="score-value">{{ gameState.scores?.team1 }}</span>
-             </div>
-             <div class="vs">VS</div>
-             <div class="team-score">
-                 <span>Eux</span>
-                 <span class="score-value">{{ gameState.scores?.team2 }}</span>
-             </div>
-          </div>
-          <button @click="resetGame" class="chill-btn">Retour au Lobby</button>
       </div>
 
       <!-- Last Trick Modal -->
@@ -1072,5 +1075,81 @@ const dynamicMargin = computed(() => {
 .fly-to-anim-pos-right {
    transform: translate(45vw, -50%) scale(0.5) !important;
    opacity: 0;
+}
+
+.game-over-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2rem;
+    padding: 3rem;
+    border-radius: 20px;
+    background: rgba(30, 41, 59, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 0 50px rgba(0, 0, 0, 0.8);
+    text-align: center;
+    min-width: 320px;
+    animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes popIn {
+    from { opacity: 0; transform: scale(0.8); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+.winner-announcement {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: #ffd700;
+    margin-bottom: 2rem;
+    text-shadow: 0 4px 10px rgba(255, 215, 0, 0.3);
+}
+
+.scores-summary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3rem;
+    margin-bottom: 2.5rem;
+    background: rgba(0,0,0,0.3);
+    padding: 1.5rem 2rem;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.05);
+}
+
+.team-score {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.team-score span:first-child {
+    font-size: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    opacity: 0.8;
+}
+
+.score-value {
+    font-size: 2.5rem;
+    font-weight: bold;
+    font-family: monospace;
+}
+
+.vs {
+    font-size: 1.2rem;
+    font-weight: bold;
+    opacity: 0.5;
+    font-style: italic;
+}
+
+.chill-btn.large-btn {
+    font-size: 1.2rem;
+    padding: 1rem 2.5rem;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
 }
 </style>

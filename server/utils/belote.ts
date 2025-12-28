@@ -56,6 +56,10 @@ export class BeloteGame {
   bidTakerIndex: number | null = null;
   biddingHistory: { playerId: string, username: string, action: 'pass' | 'take', suit?: Suit }[] = [];
   readyPlayers: string[] = [];
+  
+  isResolving: boolean = false; // New State Flag
+  
+  // Anti-loop protection
   lastInteraction: number = Date.now();
 
   onUpdate: () => void = () => { this.lastInteraction = Date.now(); };
@@ -415,36 +419,53 @@ export class BeloteGame {
     this.processCardPlay(userId, cardId);
   }
 
-  processCardPlay(userId: string, cardId: string) {
-    const playerIndex = this.players.findIndex(p => p.id === userId);
+  processCardPlay(playerId: string, cardId: string) {
+      if (this.phase !== 'playing') return;
+      
+      // CRITICAL: Block input during trick resolution (Animation window)
+      if (this.isResolving) {
+          console.warn(`[BELOTE] Blocked play from ${playerId} (Resolving Phase)`);
+          return;
+      }
+      
+      // CRITICAL: Prevent playing if trick is full (secondary check)
+      if (this.currentTrick.length >= 4) {
+          console.warn(`[BELOTE] Blocked play from ${playerId} (Trick full)`);
+          return;
+      }
+
+      this.lastInteraction = Date.now(); // Reset Watchdog on valid input
+    const playerIndex = this.players.findIndex(p => p.id === playerId);
     
     // Safety against race conditions or double-plays
     if (playerIndex !== this.turnIndex) {
-        console.warn(`[BELOTE] Blocked out-of-turn play by ${userId} (Index ${playerIndex}). Current Turn: ${this.turnIndex}`);
+        console.warn(`[BELOTE] Blocked out-of-turn play by ${playerId} (Index ${playerIndex}). Current Turn: ${this.turnIndex}`);
         return;
     }
 
-    const hand = this.hands[userId];
+    const hand = this.hands[playerId];
     const cardIndex = hand?.findIndex(c => c.id === cardId);
     
     if (!hand || cardIndex === -1) {
-        console.error(`[BELOTE] Invalid card play: ${cardId} by ${userId}`);
+        console.error(`[BELOTE] Invalid card play: ${cardId} by ${playerId}`);
         return;
     }
 
     const card = hand[cardIndex];
     hand.splice(cardIndex, 1);
     
-    this.currentTrick.push({ playerId: userId, card });
+    this.currentTrick.push({ playerId: playerId, card });
     this.onUpdate();
 
     if (this.currentTrick.length === 4) {
+      this.isResolving = true; // LOCK STATE
       setTimeout(() => {
           try {
               this.resolveTrick();
           } catch (e) {
               console.error('[BELOTE] CRITICAL ERROR in resolveTrick:', e);
-              // Attempt recovery?
+              this.isResolving = false; // Emergency Unlock
+              // Attempt recovery
               this.turnIndex = (this.turnIndex + 1) % 4;
               this.onUpdate();
           }
@@ -478,6 +499,7 @@ export class BeloteGame {
         cards: [...this.currentTrick]
     };
     this.currentTrick = [];
+    this.isResolving = false; // UNLOCK STATE
     this.onUpdate();
     
     // 4. Check End of Round
@@ -572,6 +594,7 @@ export class BeloteGame {
 
   checkStalled() {
       if (this.phase !== 'playing' && this.phase !== 'bidding') return;
+      if (this.isResolving) return; // Do not interrupt resolution
       
       const currentPlayer = this.players[this.turnIndex];
       // Only intervene if it's a BOT's turn and nothing happened for 12 seconds
