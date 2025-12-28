@@ -42,12 +42,12 @@
                          <span class="avatar-small">{{ getAvatar(play.playerId) }}</span>
                          <span class="name">{{ getName(play.playerId) }}</span>
                      </div>
+                     <span v-if="play.playerId === gameState.lastTrick.winnerId" class="winner-trophy">🏆</span>
                      <PlayingCard 
                          :rank="play.card.rank" 
                          :suit="play.card.suit"
                          class="mini-card"
                      />
-                     <span v-if="play.playerId === gameState.lastTrick.winnerId" class="winner-trophy">🏆</span>
                  </div>
              </div>
              <button @click="showLastTrickModal = false" class="chill-btn small">Fermer</button>
@@ -78,7 +78,7 @@
            <!-- GLOBAL Trump Indicator (Top Right absolute) -->
            <div v-if="gameState.trumpSuit" 
                 class="taker-trump-indicator global-trump"
-                style="position: absolute; top: 16px; right: 18px; z-index: 100;"
+                style="position: fixed; top: 4rem; left: 10px; z-index: 100; margin: 0;"
                 :class="{ 'red-suit': isRedSuit(gameState.trumpSuit), 'black-suit': !isRedSuit(gameState.trumpSuit) }">
                {{ getSuitIcon(gameState.trumpSuit) }}
            </div>
@@ -131,12 +131,14 @@
                         </div>
                      </div>
 
-                      <!-- REVIEW BUTTON -->
-                      <div class="review-controls-top-left" v-if="gameState.lastTrick && gameState.phase === 'playing'">
-                          <button class="chill-btn small ghost-btn" @click="showLastTrickModal = !showLastTrickModal" style="font-size: 0.8rem; padding: 4px 10px;">
-                             Dernier pli
-                          </button>
-                      </div>
+                       <button 
+                           v-if="gameState.lastTrick && gameState.phase === 'playing'" 
+                           class="chill-btn small ghost-btn" 
+                           @click="showLastTrickModal = !showLastTrickModal" 
+                           style="position: fixed; top: 4rem; right: 8px; z-index: 100; font-size: 0.8rem; padding: 4px 10px; margin: 0;"
+                       >
+                          Dernier pli
+                       </button>
 
                      <!-- BIDDING PHASE -->
                      <div class="bidding-area" v-if="gameState.phase === 'bidding' && gameState.turnedCard">
@@ -150,16 +152,16 @@
                           </div>
                           
                           <!-- MY CONTROLS -->
-                          <div v-if="isTurn(myIndex)" class="bidding-controls">
+                          <div v-if="isTurn(myIndex) && !localBidMade" class="bidding-controls">
                               <div v-if="gameState.biddingRound === 1" class="round-actions">
-                                  <button @click="bid('take')" class="chill-btn small">Prendre</button>
-                                  <button @click="bid('pass')" class="chill-btn small secondary">Passer</button>
+                                  <button @click="handleBid('take')" class="chill-btn small">Prendre</button>
+                                  <button @click="handleBid('pass')" class="chill-btn small secondary">Passer</button>
                               </div>
                               <div v-else class="round-actions">
                                   <p>Choisir une couleur :</p>
                                   <div class="color-picker">
                                       <button v-for="suit in suits" :key="suit" 
-                                         @click="bid('take', suit)"
+                                         @click="handleBid('take', suit)"
                                          class="suit-btn" 
                                          :class="{ 'red-suit': isRedSuit(suit), 'black-suit': !isRedSuit(suit) }"
                                          :disabled="suit === gameState.turnedCard?.suit">
@@ -267,7 +269,6 @@
              :rank="play.card.rank" 
              :suit="play.card.suit" 
            />
-           <div class="winner-badge" v-if="play.playerId === animatingTrick.winnerId">🏆</div>
         </div>
      </div>
 
@@ -275,7 +276,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useBeloteGame } from '~/composables/useBeloteGame'
 import PlayingCard from '~/components/PlayingCard.vue'
 import type { Card, Suit } from '~/types/belote'
@@ -312,6 +313,20 @@ const readyCount = computed(() => {
 const hasClickedReady = computed(() => {
     const userId = localStorage.getItem('belote_user_id')
     return gameState.value.readyPlayers?.includes(userId || '')
+})
+
+// --- IMMEDIATE BIDDING FEEDBACK ---
+const localBidMade = ref(false)
+
+const handleBid = (action: 'take' | 'pass', suit?: Suit) => {
+    localBidMade.value = true
+    bid(action, suit)
+}
+
+// Reset local bid state when turn changes or phase changes
+watch(() => gameState.value.turnIndex, () => {
+    // If turn changes (to someone else or back to me later), reset lock
+    localBidMade.value = false
 })
 
 const showLastTrickModal = ref(false)
@@ -377,6 +392,15 @@ const getPositionClass = (playerId: string) => {
     
     // Relative position calculation
     const rel = (pIndex - myIndex.value + 4) % 4
+    
+    // If we are animating globally, use standard Top/Left coordinates to avoid transition glitches
+    if (animatingTrick.value) {
+        if (rel === 0) return 'anim-pos-bottom'
+        if (rel === 1) return 'anim-pos-left'
+        if (rel === 2) return 'anim-pos-top'
+        return 'anim-pos-right'
+    }
+
     if (rel === 0) return 'pos-bottom'
     if (rel === 1) return 'pos-left'
     if (rel === 2) return 'pos-top'
@@ -525,9 +549,11 @@ const dynamicMargin = computed(() => {
 .game-page {
   padding: 0;
   width: 100%;
-  height: 100vh;
+  height: 100vh; /* Fallback */
+  height: 100dvh; /* Dynamic Viewport Height for mobile */
   overflow: hidden;
   position: relative;
+  box-sizing: border-box;
 }
 
 .login-modal {
@@ -740,31 +766,6 @@ const dynamicMargin = computed(() => {
     &.animating {
       /* Base state for animation layer */
       z-index: 100 !important;
-      
-      /* Phase 1: SHRINK (gathering) */
-      &.phase-gathering {
-          transition: all 0.5s ease-in-out;
-          
-          /* Force centering for ALL cards */
-          top: 50% !important;
-          left: 50% !important;
-          bottom: auto !important;
-          right: auto !important;
-          margin: 0 !important;
-          
-          transform: translate(-50%, -50%) scale(0.5) !important;
-      }
-
-      /* Phase 2: FLY (flying) */
-      &.phase-flying {
-          transition: all 0.7s ease-in-out; 
-          opacity: 0;
-          
-          &.fly-to-pos-top { transform: translate(-50%, -40vh) scale(0.5) !important; }
-          &.fly-to-pos-bottom { transform: translate(-50%, 40vh) scale(0.5) !important; }
-          &.fly-to-pos-left { transform: translate(-45vw, -50%) scale(0.5) !important; }
-          &.fly-to-pos-right { transform: translate(45vw, -50%) scale(0.5) !important; }
-      }
     }
 }
 
@@ -930,30 +931,16 @@ const dynamicMargin = computed(() => {
 
 /* Global Animation Layer */
 .global-animation-layer {
-    position: absolute;
+    position: fixed;
     inset: 0;
+    width: 100%;
+    height: 100%;
     pointer-events: none;
     overflow: hidden;
     z-index: 999;
-    
-    display: flex;
-    justify-content: center;
-    align-items: center;
+    /* Removed flex to avoid layout interference with absolute children */
 }
 
-.global-animation-layer .trick-card {
-    position: absolute;
-}
-
-.gather-center {
-    top: 50% !important;
-    left: 50% !important;
-    bottom: auto !important;
-    right: auto !important;
-    transform: translate(-50%, -50%) scale(0.8) !important;
-    opacity: 1;
-    transition: all 0.5s ease-in-out !important;
-}
 
 .review-controls-top-left {
     position: absolute;
@@ -963,7 +950,7 @@ const dynamicMargin = computed(() => {
 }
 .icon-only {
     font-size: 1.5rem;
-    padding: 0 0.5rem;
+    padding: 0;
     margin-left: 0;
     background: transparent;
     &:hover { background: rgba(255,255,255,0.1); }
@@ -1011,6 +998,8 @@ const dynamicMargin = computed(() => {
     padding: 1.5rem;
     width: 90%;
     max-width: 400px;
+    max-height: 80vh; /* Limit height */
+    overflow-y: auto; /* Allow Scroll */
     color: white;
     text-align: center;
     box-shadow: 0 10px 25px rgba(0,0,0,0.5);
@@ -1062,19 +1051,19 @@ const dynamicMargin = computed(() => {
   transform: translate(-50%, -50%);
 }
 
-.fly-to-pos-bottom {
+.fly-to-anim-pos-bottom {
   transform: translate(-50%, 40vh) scale(0.5) !important;
   opacity: 0;
 }
-.fly-to-pos-top {
+.fly-to-anim-pos-top {
    transform: translate(-50%, -40vh) scale(0.5) !important;
    opacity: 0;
 }
-.fly-to-pos-left {
+.fly-to-anim-pos-left {
    transform: translate(-45vw, -50%) scale(0.5) !important;
    opacity: 0;
 }
-.fly-to-pos-right {
+.fly-to-anim-pos-right {
    transform: translate(45vw, -50%) scale(0.5) !important;
    opacity: 0;
 }

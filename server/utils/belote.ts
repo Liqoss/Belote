@@ -70,6 +70,7 @@ export class BeloteGame {
     const existingPlayer = this.players.find(p => p.id === userId);
     
     if (existingPlayer) {
+        // --- RECONNECTION ---
         existingPlayer.socketId = socketId;
         existingPlayer.disconnectedAt = undefined;
         existingPlayer.isBot = false; // Restore humanity
@@ -83,6 +84,8 @@ export class BeloteGame {
             this.checkBotTurn();
         }
     } else {
+        // --- NEW PLAYER ---
+        // 1. Check for empty slot
         if (this.players.length < 4) {
             this.players.push({ 
                 id: userId, 
@@ -91,14 +94,45 @@ export class BeloteGame {
                 isBot: false 
             });
             this.socketMap[socketId] = userId;
+        } 
+        // 2. Check for Bot to Replace (if lobby full or game started)
+        else {
+            const botIndex = this.players.findIndex(p => p.isBot);
+            if (botIndex !== -1) {
+                const bot = this.players[botIndex];
+                console.log(`[BELOTE] replacing bot ${bot.username} with human ${username}.`);
+                
+                // Transfer Hand
+                if (this.hands[bot.id]) {
+                    this.hands[userId] = this.hands[bot.id];
+                    delete this.hands[bot.id];
+                }
+
+                // Update Player Object in place (preserves index order)
+                this.players[botIndex] = {
+                    id: userId,
+                    socketId: socketId,
+                    username: username,
+                    isBot: false
+                };
+                
+                this.socketMap[socketId] = userId;
+                // Note: We don't remove bot from socketMap because bots don't have sockets.
+            } else {
+                console.log(`[BELOTE] Game full of humans. ${username} is spectator.`);
+                // Do nothing => Spectator
+            }
         }
     }
     
     // Auto-Reset if only one human is left/connected in a polluted lobby
-    const humanCount = this.players.filter(p => !p.isBot && p.socketId).length;
-    if (humanCount === 1 && this.players.length > 1) {
-        console.log('[BELOTE] Only one human connected. Triggering clean reset.');
-        this.fullReset();
+    // (Only if we are actually in lobby phase? Or blindly?)
+    if (this.phase === 'lobby') {
+        const humanCount = this.players.filter(p => !p.isBot && p.socketId).length;
+        if (humanCount === 1 && this.players.length > 1) {
+             // Optional: logic to clear stuck bots if only 1 human remains?
+             // For now, let's keep it simple.
+        }
     }
   }
   
@@ -204,7 +238,9 @@ export class BeloteGame {
     this.currentScores = { team1: 0, team2: 0 };
     this.trumpSuit = null;
     this.bidTakerIndex = null;
+    this.bidTakerIndex = null;
     this.biddingHistory = [];
+    this.readyPlayers = []; // Reset ready status for new round
     
     // Initialize Deck
     const suits: Suit[] = ['H', 'D', 'C', 'S'];

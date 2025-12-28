@@ -25,8 +25,7 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
       const updateAll = () => {
           if (!io) return
           
-          // Construct Safe State (exclude sensitive info if needed, or strictly match GameState)
-          // For now, simpler: we send the public state.
+          // Construct Safe State (exclude sensitive info by default)
           const baseState = {
               phase: game.phase,
               players: game.players,
@@ -45,15 +44,24 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
               // Hands are NOT sent in baseState
           }
 
-          game.players.forEach(p => {
-              if (!p.isBot && p.socketId) {
-                  const s = io.sockets.sockets.get(p.socketId)
-                  if (s) {
-                      s.emit('game-update', { 
-                          ...baseState, 
-                          hands: { [p.id]: game.hands[p.id] || [] } // Send only THEIR hand
-                      })
-                  }
+          // Broadcast to ALL connected sockets (players + spectators)
+          io.sockets.sockets.forEach((socket) => {
+              // Identify if this socket belongs to a player
+              // We can reverse lookup or just check mapping
+              const playerId = game.socketMap[socket.id]
+              const player = game.players.find(p => p.id === playerId)
+
+              // If it's a known player, send their hand
+              if (player && !player.isBot) {
+                  socket.emit('game-update', { 
+                      ...baseState, 
+                      hands: { [player.id]: game.hands[player.id] || [] } 
+                  })
+              } else {
+                  // Spectator or Lobby User: Send public state
+                  socket.emit('game-update', {
+                      ...baseState
+                  })
               }
           })
       }

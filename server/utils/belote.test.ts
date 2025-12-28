@@ -29,7 +29,7 @@ describe('BeloteGame', () => {
     
     vi.useFakeTimers()
     game.startRound() // This is called by startGame usually
-    vi.runAllTimers()
+    vi.advanceTimersByTime(10000) // Forward 10s to cover all dealing animations (4s total)
     
     // After dealing, bid card should be turned
     expect(game.turnedCard).toBeDefined()
@@ -46,13 +46,16 @@ describe('BeloteGame', () => {
   it('should handle bidding correctly', () => {
       vi.useFakeTimers()
       game.startRound()
-      vi.runAllTimers()
+      vi.advanceTimersByTime(10000)
       
       const firstPlayer = game.players[game.turnIndex]
       const turnedSuit = game.turnedCard!.suit
       
       // First player takes
       game.playerBid(firstPlayer.socketId!, 'take')
+      
+      // Allow animation (finalizeDistribution has 1500ms delay)
+      vi.advanceTimersByTime(2000)
       
       expect(game.trumpSuit).toBe(turnedSuit)
       expect(game.bidTakerIndex).toBe(game.turnIndex) // Note: turnIndex changes logic inside bid?
@@ -185,7 +188,7 @@ describe('BeloteGame', () => {
       
       const newP = game.players[pIndex]
       expect(newP.isBot).toBe(true)
-      expect(newP.id).not.toBe(pId)
+      expect(newP.id).toBe(pId) // ID should be preserved for reconnection capability
       expect(newP.username).toContain('Bot')
   })
 
@@ -233,7 +236,7 @@ describe('BeloteGame', () => {
       // 4. Player 3 Ready
       vi.useFakeTimers()
       game.playerSetReady('socket_3')
-      vi.runAllTimers() // Deal cards
+      vi.advanceTimersByTime(10000) // Deal cards (animations)
       
       expect(game.phase).toBe('bidding') // Should have started
       expect(game.readyPlayers).toEqual([]) // Should be reset
