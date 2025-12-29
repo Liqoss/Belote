@@ -22,29 +22,33 @@ export const useBeloteGame = () => {
             localStorage.setItem('belote_user_id', userId)
         }
 
+        // Try to recover username
+        const storedName = localStorage.getItem('belote_username')
+        if (storedName) {
+            username.value = storedName
+        }
+
         socket.value = io()
         
         socket.value.on('connect', () => {
+            // Auto-rejoin if we have a username
             if (username.value) {
                 socket.value?.emit('join-game', { username: username.value, userId })
                 hasJoined.value = true
+            } else {
+                // Determine checking for existing session? 
+                // For now, just connect. We rely on game-update broadcasting to all connected sockets 
+                // (or at least providing lobby state to new connections).
+                // If server only sends to 'room', we might need a 'spectate' generic join.
+                // Assuming default implementation sends to all or we request update:
+                socket.value?.emit('request-state') 
             }
         })
         
         socket.value.on('game-update', (state: GameState) => {
             gameState.value = state
             
-            // Extract my hand (server usually sends everything but let's assume we filter or server sends 'myHand' separately property on state object which is not in GameState type?)
-            // In the original code: `if (state.myHand) myHand.value = state.myHand`
-            // But GameState type expects 'hands' record. 
-            // The server `onUpdate` usually broadcasts to everyone? 
-            // Actually server implementation sends `this` which includes everything.
-            // But for security 'hands' should be filtered. 
-            // Let's assume for this refactor we rely on what the server sends.
-            // NOTE: We need to extend GameState type in frontend if we receive extra 'myHand' property 
-            // OR we derive it from 'hands' if the server sends our hand in the record.
-            
-            // Let's check 'hands'
+            // Sync myHand
             if (state.hands && userId && state.hands[userId]) {
                 myHand.value = state.hands[userId]
             } else if ((state as any).myHand) {
@@ -68,10 +72,46 @@ export const useBeloteGame = () => {
         return gameState.value.turnIndex === myIndex.value
     })
 
+    // Score Helpers (Relative to "Me")
+    const myTeamId = computed(() => {
+        if (myIndex.value === -1) return 1 // Default
+        return (myIndex.value % 2) === 0 ? 1 : 2
+    })
+
+    const myTeamScore = computed(() => {
+        if (!gameState.value.scores) return 0
+        return myTeamId.value === 1 ? gameState.value.scores.team1 : gameState.value.scores.team2
+    })
+
+    const otherTeamScore = computed(() => {
+        if (!gameState.value.scores) return 0
+        return myTeamId.value === 1 ? gameState.value.scores.team2 : gameState.value.scores.team1
+    })
+
+    const myTeamCurrentScore = computed(() => {
+        if (!gameState.value.currentScores) return 0
+        return myTeamId.value === 1 ? gameState.value.currentScores.team1 : gameState.value.currentScores.team2
+    })
+
+    const otherTeamCurrentScore = computed(() => {
+        if (!gameState.value.currentScores) return 0
+        return myTeamId.value === 1 ? gameState.value.currentScores.team2 : gameState.value.currentScores.team1
+    })
+
     // Actions
     const joinGame = () => {
         if (!username.value) return
-        initSocket()
+        localStorage.setItem('belote_username', username.value)
+        const userId = localStorage.getItem('belote_user_id')
+        
+        if (socket.value && socket.value.connected) {
+             socket.value.emit('join-game', { username: username.value, userId })
+             hasJoined.value = true
+        } else {
+             // Fallback if socket wasn't ready (though button is disabled usually?)
+             // Force init if missing?
+             if (!socket.value) initSocket()
+        }
     }
 
     const startBots = () => socket.value?.emit('start-game-bots')
@@ -124,6 +164,7 @@ export const useBeloteGame = () => {
 
     return {
         socket,
+        initSocket,
         gameState,
         username,
         hasJoined,
@@ -136,6 +177,10 @@ export const useBeloteGame = () => {
         myIndex,
         isMyTurn,
         isLobby,
+        myTeamScore,
+        otherTeamScore,
+        myTeamCurrentScore,
+        otherTeamCurrentScore,
         
         // Actions
         joinGame,
@@ -143,6 +188,7 @@ export const useBeloteGame = () => {
         startGame,
         bid,
         playCard,
-        setReady: () => socket.value?.emit('player-ready')
+        setReady: () => socket.value?.emit('player-ready'),
+        resetGame: () => socket.value?.emit('reset-game')
     }
 }

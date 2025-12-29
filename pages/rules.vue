@@ -42,8 +42,11 @@
 
 <style scoped lang="scss">
 .rules-page {
+  height: auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   align-items: flex-start; /* Allow scrolling on mobile */
-  padding-top: 4rem; /* Space for top bar if needed */
+  padding-top: 0.5rem; /* Space for top bar if needed */
 }
 
 .content-wrapper {

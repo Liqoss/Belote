@@ -6,7 +6,7 @@
 
 <style lang="scss">
 .app-layout {
-  min-height: 100vh;
+  height: 100%;
   width: 100%;
   background-color: var(--bg-color);
   color: var(--text-main);

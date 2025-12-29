@@ -1,40 +1,43 @@
 <template>
-  <div class="page-container game-page">
+<div class="game-page">
     <ClientOnly>
       <!-- Login Modal -->
-      <div v-if="!hasJoined" class="glass-panel login-modal">
-        <h2>Entrez dans l'Arène</h2>
-        <input 
-          v-model="username" 
-          placeholder="Votre Pseudo" 
-          class="chill-input" 
-          @keyup.enter="joinGame"
-        />
-        <button @click="joinGame" class="chill-btn small" :disabled="!username">
-          Rejoindre
-        </button>
+      <div v-if="!hasJoined" class="modal-overlay login-overlay">
+        <div class="glass-panel login-modal">
+            <h2>Entrez dans l'Arène</h2>
+            <input 
+              v-model="username" 
+              placeholder="Votre Pseudo" 
+              class="chill-input" 
+              @keyup.enter="joinGame"
+            />
+            <button @click="joinGame" class="chill-btn small" :disabled="!username">
+              Rejoindre
+            </button>
+        </div>
       </div>
 
 
       <!-- Game Over Modal -->
       <!-- Game Over Modal -->
-      <div v-if="gameState.phase === 'game_over'" class="modal-overlay">
+      <!-- Game Over Modal -->
+      <div v-if="gameState.phase === 'game_over' && !animatingTrick" class="modal-overlay">
           <div class="game-over-content glass-panel">
               <h2>PARTIE TERMINÉE</h2>
               <div class="winner-announcement">
-                  <span v-if="gameState.scores.team1 > gameState.scores.team2">VICTOIRE ! 🏆</span>
+                  <span v-if="myTeamScore > otherTeamScore">VICTOIRE ! 🏆</span>
                   <span v-else>DÉFAITE... 💀</span>
               </div>
               <div class="scores-summary">
-                 <div class="team-score">
-                     <span>Nous</span>
-                     <span class="score-value">{{ gameState.scores?.team1 }}</span>
-                 </div>
-                 <div class="vs">VS</div>
-                 <div class="team-score">
-                     <span>Eux</span>
-                     <span class="score-value">{{ gameState.scores?.team2 }}</span>
-                 </div>
+                  <div class="team-score">
+                      <span>Nous</span>
+                      <span class="score-value">{{ myTeamScore }}</span>
+                  </div>
+                  <div class="vs">VS</div>
+                  <div class="team-score">
+                      <span>Eux</span>
+                      <span class="score-value">{{ otherTeamScore }}</span>
+                  </div>
               </div>
               <button @click="resetGame" class="chill-btn large-btn">Retour au Lobby</button>
           </div>
@@ -63,7 +66,7 @@
       </div>
 
       <!-- Game Board -->
-      <div v-else class="game-board">
+      <div class="game-board">
         <div class="status-bar">
           <div class="left-stats">
             <span>Joueurs : {{ playerCount }}/4</span>
@@ -73,9 +76,9 @@
           </div>
           
           <div class="scores" v-if="gameState.phase === 'playing'">
-             <span class="team-score">Nous: {{ gameState.scores?.team1 }} (+{{ gameState.currentScores?.team1 }})</span>
+             <span class="team-score">Nous: {{ myTeamScore }} (+{{ myTeamCurrentScore }})</span>
              <span class="divider">/</span>
-             <span class="team-score">Eux: {{ gameState.scores?.team2 }} (+{{ gameState.currentScores?.team2 }})</span>
+             <span class="team-score">Eux: {{ otherTeamScore }} (+{{ otherTeamCurrentScore }})</span>
           </div>
           
           <NuxtLink to="/" class="action-btn icon-only" title="Retour Accueil">🏠</NuxtLink>
@@ -180,7 +183,7 @@
                               </div>
                           </div>
                           <div v-else class="waiting-text">
-                              {{ getName(gameState.turnIndex || -1) }} réfléchit...
+                              {{ getName(gameState.turnIndex ?? -1) }} réfléchit...
                           </div>
                      </div>
 
@@ -206,7 +209,7 @@
 
            <!-- BOTTOM PLAYER (Me) -->
            <div class="player-slot bottom" :class="{ active: isTurn(myIndex) }">
-               <div v-if="isTurn(myIndex) && gameState.phase === 'playing'" class="my-turn-badge">⚡ À VOUS DE JOUER ! ⚡</div>
+               <div v-if="isTurn(myIndex) && gameState.phase === 'playing'" class="my-turn-badge">À VOUS DE JOUER !</div>
                <TransitionGroup 
                  name="hand-card" 
                  tag="div" 
@@ -242,12 +245,12 @@
     </ClientOnly>
     
       <!-- ROUND SUMMARY MODAL -->
-      <div class="login-modal-overlay" v-if="gameState.phase === 'round_summary'" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); display:flex; justify-content:center; align-items:center; z-index:200;">
+      <div class="login-modal-overlay" v-if="gameState.phase === 'round_summary' && !animatingTrick" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); display:flex; justify-content:center; align-items:center; z-index:200;">
          <div class="login-modal" style="background: rgba(40,40,60,0.95); padding: 2rem; border-radius: 20px; border: 1px solid rgba(255,255,255,0.2); width: 300px; text-align: center;">
              <h2>Fin de la Manche</h2>
              <div class="scores-summary" style="margin: 1rem 0;">
-                 <p style="color: var(--primary-color); font-size: 1.2rem; margin: 5px 0;">Nous: {{ gameState.scores?.team1 }}</p>
-                 <p style="color: #ef4444; font-size: 1.2rem; margin: 5px 0;">Eux: {{ gameState.scores?.team2 }}</p>
+                 <p style="color: var(--primary-color); font-size: 1.2rem; margin: 5px 0;">Nous: {{ myTeamScore }}</p>
+                 <p style="color: #ef4444; font-size: 1.2rem; margin: 5px 0;">Eux: {{ otherTeamScore }}</p>
              </div>
              
              <div class="ready-status" style="margin-bottom: 20px;">
@@ -307,7 +310,12 @@ const {
     animatingTrick,
     animationPhase,
     setReady,
-    resetGame
+    resetGame,
+    initSocket,
+    myTeamScore,
+    otherTeamScore,
+    myTeamCurrentScore,
+    otherTeamCurrentScore
 } = useBeloteGame()
 
 const humanCount = computed(() => {
@@ -501,6 +509,7 @@ const updateWidth = () => {
 
 onMounted(() => {
     updateWidth()
+    initSocket()
     window.addEventListener('resize', updateWidth)
 })
 
@@ -549,20 +558,25 @@ const dynamicMargin = computed(() => {
 :global(html), :global(body) {
   margin: 0;
   padding: 0;
-  width: 100%;
-  height: 100%;
+  width: 100vw;
+  height: 100dvh;
   overflow: hidden !important;
   overscroll-behavior: none;
 }
 
 .game-page {
-  padding: 0;
   width: 100%;
-  height: 100vh; /* Fallback */
-  height: 100dvh; /* Dynamic Viewport Height for mobile */
+  height: 100%;
+  padding: 0;
   overflow: hidden;
-  position: relative;
   box-sizing: border-box;
+  background: var(--bg-color);
+}
+
+.login-overlay {
+    z-index: 2000; /* Higher than everything else */
+    background: rgba(0,0,0,0.6); /* Slightly transparent to see game behind */
+    backdrop-filter: blur(8px);
 }
 
 .login-modal {
@@ -571,7 +585,7 @@ const dynamicMargin = computed(() => {
   gap: 1rem;
   align-items: center;
   z-index: 50;
-  position: absolute;
+  position: relative; /* Relative to overlay */
 }
 
 .chill-input {
@@ -622,14 +636,17 @@ const dynamicMargin = computed(() => {
     align-items: center;
 }
 
-/* Board Layout */
+/* Board Layout - Grid Strategy */
 .board-layout {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+  display: grid;
+  grid-template-rows: min-content 1fr min-content; /* Strict vertical sizing */
+  height: 100%;
+  width: 100%;
   padding: 0.25rem;
+  padding-bottom: env(safe-area-inset-bottom, 10px); /* Add safe area here */
   position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .player-slot {
@@ -638,11 +655,16 @@ const dynamicMargin = computed(() => {
   align-items: center;
   transition: opacity 0.3s;
   position: relative;
+  z-index: 10;
   
   &.active .avatar-circle {
     box-shadow: 0 0 15px 5px #ffd700;
     transform: scale(1.1);
     border: 2px solid #ffd700;
+  }
+
+  &.top {
+    padding: 8px 0;
   }
 }
 
@@ -692,22 +714,29 @@ const dynamicMargin = computed(() => {
 }
 
 .middle-row {
-  flex: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: 0; /* Critical for grid item shrinking */
+  height: 90%;
+  margin: 0; /* Remove margin to let grid handle spacing if needed, or keep small */
+  padding: 0.5rem 0;
 }
 
 .card-carpet {
   flex: 1;
+  width: 100%; /* Fill width */
   background: var(--carpet-green);
   border-radius: 40px;
   margin: 0 0.5rem;
-  height: 90%;
+  /* Ensure it doesn't overflow */
+  height: 100%; 
+  min-height: 0;
+  max-height: 100%;
   box-shadow: inset 0 0 40px rgba(0,0,0,0.6);
   border: 8px solid #5d4037;
   position: relative;
-  display: flex;
+  display: flex; /* Center trick/bidding */
   align-items: center;
   justify-content: center;
 }
@@ -764,6 +793,51 @@ const dynamicMargin = computed(() => {
     position: relative;
     width: 200px;
     height: 200px;
+    transition: all 0.3s; /* Smooth resize */
+}
+
+
+/** RESPONSIVE VERTICAL TWEAKS **/
+@media (max-height: 750px) {
+    .trick-area {
+        width: 150px;
+        height: 150px;
+    }
+    
+    .my-hand {
+        height: 120px !important;
+        margin-bottom: -10px !important;
+    }
+    
+    .status-bar {
+        padding: 0.2rem 0.5rem;
+    }
+    
+    .avatar-circle {
+        width: 40px;
+        height: 40px;
+    }
+    
+    .player-name {
+        margin-top: 2px;
+    }
+}
+
+@media (max-height: 600px) {
+    .trick-area {
+        width: 120px;
+        height: 120px;
+    }
+    .my-hand {
+        height: 100px !important;
+        margin-bottom: 0px !important;
+    }
+    .card-carpet {
+        border-width: 4px; /* Save space */
+    }
+    .status-bar {
+        font-size: 0.8rem;
+    }
 }
 
 

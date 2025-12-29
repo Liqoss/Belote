@@ -25,6 +25,10 @@
       <div class="links">
         <NuxtLink to="/rules" class="text-link">Comment jouer ?</NuxtLink>
       </div>
+      
+      <div class="version">
+        <span>Version 1.1</span>
+      </div>
     </div>
   </div>
 </template>
@@ -138,6 +142,14 @@ const handlePlayAction = () => {
     color: var(--primary-color);
     border-color: var(--primary-color);
   }
+}
+
+.version {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
 }
 
 @media (min-width: 768px) {
