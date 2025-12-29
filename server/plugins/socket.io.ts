@@ -118,6 +118,12 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
             updateAll()
         })
 
+        socket.on('reset-game', () => {
+            console.log('[SOCKET] Reset Game requested by', socket.id)
+            game.fullReset()
+            updateAll()
+        })
+
         socket.on('disconnect', () => {
           console.log('Client disconnected:', socket.id)
           game.removePlayer(socket.id)

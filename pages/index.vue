@@ -27,7 +27,7 @@
       </div>
       
       <div class="version">
-        <span>Version 1.1</span>
+        <span>Version 1.1.2</span>
       </div>
     </div>
   </div>
