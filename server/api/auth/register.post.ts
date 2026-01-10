@@ -26,13 +26,10 @@ export default defineEventHandler(async (event) => {
     const userCount = getUserCount().count
     const isFirstUser = userCount === 0
     
-    let role = 'player'
-    if (isFirstUser) role = 'admin'
+    // Default Role
+    const role = isFirstUser ? 'admin' : 'player'
     
-    // BACKDOOR: Setup Token
-    if (token === 'SETUP_ADMIN') {
-        role = 'admin'
-    } else if (!isFirstUser) {
+    if (!isFirstUser) {
         if (!token) {
             throw createError({ statusCode: 403, statusMessage: 'Invitation Required' })
         }
@@ -62,8 +59,8 @@ export default defineEventHandler(async (event) => {
 
     // Handle Avatar Upload
     if (avatarFile && avatarFile.filename) {
-        // Ensure directory exists
-        const uploadDir = path.resolve('./public/avatars')
+        // Ensure directory exists in DATA (Persistent)
+        const uploadDir = path.resolve('./data/avatars')
         if (!fs.existsSync(uploadDir)) {
             fs.mkdirSync(uploadDir, { recursive: true })
         }
@@ -73,7 +70,7 @@ export default defineEventHandler(async (event) => {
         const filePath = path.join(uploadDir, filename)
         
         fs.writeFileSync(filePath, avatarFile.data)
-        avatarPath = `/avatars/${filename}`
+        avatarPath = `/avatars/${filename}` // This URL now hits our new server route
     }
 
     // Hash Password & Answer
@@ -93,8 +90,8 @@ export default defineEventHandler(async (event) => {
             role: role
         })
         
-        // Mark invite as used (only if token existed and wasn't the magic token)
-        if (token && token !== 'SETUP_ADMIN') {
+        // Mark invite as used (only if token existed)
+        if (token) {
             markInviteUsed(token)
         }
         

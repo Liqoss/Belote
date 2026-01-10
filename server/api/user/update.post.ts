@@ -41,7 +41,7 @@ export default defineEventHandler(async (event) => {
     
     // Avatar Update
     if (avatarFile && avatarFile.filename) {
-        const uploadDir = path.resolve('./public/avatars')
+        const uploadDir = path.resolve('./data/avatars')
         if (!fs.existsSync(uploadDir)) {
             fs.mkdirSync(uploadDir, { recursive: true })
         }
