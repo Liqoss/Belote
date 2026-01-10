@@ -9,6 +9,8 @@ export default defineEventHandler(async (event) => {
         return { valid: false }
     }
 
+    if (token === 'SETUP_ADMIN') return { valid: true }
+
     const invite = validateInvite(token)
     return { valid: !!invite }
 })
