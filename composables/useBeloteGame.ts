@@ -1,6 +1,7 @@
 import { ref, computed, watch } from 'vue'
 import { io, type Socket } from 'socket.io-client'
 import type { GameState, Card, Suit, Player } from '~/types/belote'
+import { useAuth } from '~/composables/useAuth'
 
 export const useBeloteGame = () => {
     const socket = ref<Socket | null>(null)
@@ -8,6 +9,7 @@ export const useBeloteGame = () => {
     const username = ref('')
     const hasJoined = ref(false)
     const myHand = ref<Card[]>([])
+    const { user } = useAuth()
     
     // Animation specific state
     const animatingTrick = ref<any>(null)
@@ -15,32 +17,31 @@ export const useBeloteGame = () => {
     const lastHandledTrick = ref<string>('')
 
     const initSocket = () => {
-        // Generate or retrieve persistent User ID
-        let userId = localStorage.getItem('belote_user_id')
-        if (!userId) {
-            userId = 'user_' + Math.random().toString(36).substr(2, 9)
-            localStorage.setItem('belote_user_id', userId)
-        }
+        const guestId = localStorage.getItem('belote_user_id') || 'user_' + Math.random().toString(36).substr(2, 9)
+        if (!localStorage.getItem('belote_user_id')) localStorage.setItem('belote_user_id', guestId)
 
-        // Try to recover username
-        const storedName = localStorage.getItem('belote_username')
-        if (storedName) {
-            username.value = storedName
+        if (user.value) {
+            username.value = user.value.username
+        } else {
+             const storedName = localStorage.getItem('belote_username')
+             if (storedName) username.value = storedName
         }
 
         socket.value = io()
         
         socket.value.on('connect', () => {
-            // Auto-rejoin if we have a username
-            if (username.value) {
-                socket.value?.emit('join-game', { username: username.value, userId })
+            // Auto-join if Authenticated
+            if (user.value) {
+                console.log('Auto-joining as Authenticated User', user.value.username)
+                // We send explicit data too, but Backend prefers Cookies
+                socket.value?.emit('join-game', { username: user.value.username, userId: user.value.id })
+                hasJoined.value = true
+            } 
+            else if (username.value) {
+                // Guest rejoin logic
+                socket.value?.emit('join-game', { username: username.value, userId: guestId })
                 hasJoined.value = true
             } else {
-                // Determine checking for existing session? 
-                // For now, just connect. We rely on game-update broadcasting to all connected sockets 
-                // (or at least providing lobby state to new connections).
-                // If server only sends to 'room', we might need a 'spectate' generic join.
-                // Assuming default implementation sends to all or we request update:
                 socket.value?.emit('request-state') 
             }
         })
@@ -49,8 +50,10 @@ export const useBeloteGame = () => {
             gameState.value = state
             
             // Sync myHand
-            if (state.hands && userId && state.hands[userId]) {
-                myHand.value = state.hands[userId]
+            const effectiveId = user.value ? user.value.id : guestId
+            
+            if (state.hands && effectiveId && state.hands[effectiveId]) {
+                myHand.value = state.hands[effectiveId]
             } else if ((state as any).myHand) {
                  myHand.value = (state as any).myHand
             }
@@ -64,8 +67,8 @@ export const useBeloteGame = () => {
     // Logic for my Index
     const myIndex = computed(() => {
         if (!gameState.value.players) return -1
-        const userId = localStorage.getItem('belote_user_id')
-        return gameState.value.players.findIndex(p => p.id === userId)
+        const targetId = user.value ? user.value.id : localStorage.getItem('belote_user_id')
+        return gameState.value.players.findIndex(p => p.id === targetId)
     })
 
     const isMyTurn = computed(() => {
@@ -73,12 +76,15 @@ export const useBeloteGame = () => {
     })
 
     const isAdmin = computed(() => {
-        return myIndex.value === 0
+        // Admin is Player 0
+        return myIndex.value === 0 
+        // OR better: Is Player 0 connected? If yes, he is admin. If no, is next one admin?
+        // Let's stick to "First joined is Admin".
     })
 
-    // Score Helpers (Relative to "Me")
+    // Score Helpers
     const myTeamId = computed(() => {
-        if (myIndex.value === -1) return 1 // Default
+        if (myIndex.value === -1) return 1 
         return (myIndex.value % 2) === 0 ? 1 : 2
     })
 
@@ -104,17 +110,14 @@ export const useBeloteGame = () => {
 
     // Actions
     const joinGame = () => {
-        if (!username.value) return
+        // Guest Join
+        if (!username.value || user.value) return 
         localStorage.setItem('belote_username', username.value)
         const userId = localStorage.getItem('belote_user_id')
         
         if (socket.value && socket.value.connected) {
              socket.value.emit('join-game', { username: username.value, userId })
              hasJoined.value = true
-        } else {
-             // Fallback if socket wasn't ready (though button is disabled usually?)
-             // Force init if missing?
-             if (!socket.value) initSocket()
         }
     }
 

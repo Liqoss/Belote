@@ -11,6 +11,8 @@ export interface Player {
     id: string;
     socketId: string | null;
     username: string;
+    avatar?: string;
+    elo?: number;
     isBot: boolean;
     disconnectedAt?: number;
 }

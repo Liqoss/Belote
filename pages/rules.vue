@@ -42,7 +42,8 @@
 
 <style scoped lang="scss">
 .rules-page {
-  height: auto;
+  display: block;
+  height: 100vh;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   align-items: flex-start; /* Allow scrolling on mobile */

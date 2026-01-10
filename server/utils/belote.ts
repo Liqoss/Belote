@@ -1,4 +1,6 @@
 import { type Suit, type Rank, type Card as ICard, type Player, type GameState } from '~/types/belote';
+import { createGame, addGameParticipant, updateUserElo } from './db';
+import crypto from 'crypto';
 
 export class Card implements ICard {
   constructor(public suit: Suit, public rank: Rank) {}
@@ -47,7 +49,7 @@ export class BeloteGame {
   trumpSuit: Suit | null = null;
   turnedCard: Card | null = null;
   
-  phase: 'lobby' | 'dealing' | 'bidding' | 'playing' | 'round_summary' = 'lobby';
+  phase: 'lobby' | 'dealing' | 'bidding' | 'playing' | 'round_summary' | 'game_over' = 'lobby';
   
   deck: Card[] = [];
   dealerIndex: number = 0;
@@ -70,7 +72,7 @@ export class BeloteGame {
   
   // --- PLAYER MANAGEMENT ---
 
-  addPlayer(socketId: string, username: string, userId: string) {
+  addPlayer(socketId: string, username: string, userId: string, avatar?: string, elo?: number) {
     const existingPlayer = this.players.find(p => p.id === userId);
     
     if (existingPlayer) {
@@ -95,6 +97,8 @@ export class BeloteGame {
                 id: userId, 
                 socketId: socketId, 
                 username, 
+                avatar,
+                elo,
                 isBot: false 
             });
             this.socketMap[socketId] = userId;
@@ -523,7 +527,69 @@ export class BeloteGame {
              console.log('[BELOTE] Game Over. Target reached.');
              this.phase = 'game_over';
              this.readyPlayers = [];
-             // Ensure bots don't try to invoke play or updates
+
+             // --- SAVE TO DB & CALC ELO ---
+             try {
+                 const winnerTeam = this.scores.team1 > this.scores.team2 ? 'team1' : 'team2';
+                 const gameId = crypto.randomUUID();
+                 
+                 // 1. Create Game
+                 createGame({
+                     id: gameId,
+                     team1_score: this.scores.team1,
+                     team2_score: this.scores.team2,
+                     winner_team: winnerTeam
+                 });
+
+                 // 2. Calculate ELO
+                 // Group players by team
+                 const team1Players = this.players.filter((p, i) => i % 2 === 0); // 0 & 2
+                 const team2Players = this.players.filter((p, i) => i % 2 !== 0); // 1 & 3
+
+                 const avgElo1 = team1Players.reduce((sum, p) => sum + (p.elo || 100), 0) / 2;
+                 const avgElo2 = team2Players.reduce((sum, p) => sum + (p.elo || 100), 0) / 2;
+
+                 const K = 32;
+                 const expected1 = 1 / (1 + Math.pow(10, (avgElo2 - avgElo1) / 400));
+                 const expected2 = 1 / (1 + Math.pow(10, (avgElo1 - avgElo2) / 400));
+
+                 const actual1 = winnerTeam === 'team1' ? 1 : 0;
+                 const actual2 = winnerTeam === 'team2' ? 1 : 0;
+
+                 const change1 = Math.round(K * (actual1 - expected1));
+                 const change2 = Math.round(K * (actual2 - expected2));
+
+                 // Apply & Save
+                 this.players.forEach((p, i) => {
+                     // Only track humans (or bots if we wanted, but let's stick to humans)
+                     if (!p.isBot) {
+                         const team = (i % 2 === 0) ? 'team1' : 'team2';
+                         const change = (team === 'team1') ? change1 : change2;
+                         const oldElo = p.elo || 100;
+                         let newElo = oldElo + change;
+                         if (newElo < 0) newElo = 0; // Floor
+
+                         // Update Memory
+                         p.elo = newElo;
+
+                         // Save History
+                         addGameParticipant({
+                             game_id: gameId,
+                             user_id: p.id,
+                             team: team,
+                             elo_before: oldElo,
+                             elo_change: change
+                         });
+
+                         // Update User DB
+                         updateUserElo(p.id, newElo);
+                     }
+                 });
+
+             } catch (e) {
+                 console.error('[BELOTE] DB Save Error:', e);
+             }
+
         } else {
              this.phase = 'round_summary'; // Blocking phase
              this.readyPlayers = []; // Reset ready state

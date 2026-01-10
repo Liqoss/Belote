@@ -1,21 +1,7 @@
 <template>
 <div class="game-page">
     <ClientOnly>
-      <!-- Login Modal -->
-      <div v-if="!hasJoined" class="modal-overlay login-overlay">
-        <div class="glass-panel login-modal">
-            <h2>Entrez dans l'Arène</h2>
-            <input 
-              v-model="username" 
-              placeholder="Votre Pseudo" 
-              class="chill-input" 
-              @keyup.enter="joinGame"
-            />
-            <button @click="joinGame" class="chill-btn small" :disabled="!username">
-              Rejoindre
-            </button>
-        </div>
-      </div>
+      <!-- Login Modal Removed (Auth Required) -->
 
 
       <!-- Game Over Modal -->
@@ -93,15 +79,11 @@
                 <h3>Menu</h3>
                 
                 <button v-if="isAdmin && gameState.phase !== 'lobby'" @click="resetGame(); toggleMenu()" class="chill-btn danger-btn full-width">
-                    ⚠️ Redémarrez la partie
-                </button>
-                
-                <button @click="changePseudo" class="chill-btn secondary full-width">
-                    ✏️ Changer de pseudo
+                    Redémarrez la partie
                 </button>
                 
                 <button @click="leaveGame" class="chill-btn secondary full-width">
-                    🚪 Quitter la partie
+                    Quitter la partie
                 </button>
                 
                 <button @click="toggleMenu" class="chill-btn small ghost-btn" style="margin-top: 1rem;">
@@ -366,11 +348,6 @@ const toggleMenu = () => isMenuOpen.value = !isMenuOpen.value
 const leaveGame = () => {
     // Just navigate away. Socket disconnect handles the rest.
     navigateTo('/')
-}
-
-const changePseudo = () => {
-    localStorage.removeItem('belote_username')
-    location.reload()
 }
 
 // --- IMMEDIATE BIDDING FEEDBACK ---

@@ -1,6 +1,7 @@
 import { Server as SocketServer } from 'socket.io'
 import type { NitroApp } from 'nitropack'
 import { BeloteGame } from '../utils/belote'
+import { findUserById } from '../utils/db'
 
 let io: SocketServer
 // Initialize game. The callback will be set later via io connection hook or we can wrap it.
@@ -69,17 +70,35 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
       // Hook the update method
       game.onUpdate = updateAll
 
+// Helper to parse cookies
+const parseCookies = (str?: string) => {
+  if (!str) return {}
+  return Object.fromEntries(str.split('; ').map(c => c.split('=')))
+}
+
       io.on('connection', (socket) => {
         console.log('New client connected:', socket.id)
 
+        // AUTHENTICATION
+        const cookies = parseCookies(socket.handshake.headers.cookie)
+        const userId = cookies['belote_session']
+        let dbUser: any = null
+        
+        if (userId) {
+            dbUser = findUserById(userId)
+            if (dbUser) {
+                console.log(`[SOCKET] Authenticated User: ${dbUser.username} (${dbUser.id})`)
+                socket.data.user = dbUser
+            }
+        }
+
         // Initial Update for this specific client
-        const player = game.players.find(p => p.socketId === socket.id) || game.players.find(p => !p.socketId && p.id === game.socketMap[socket.id])
+        const player = game.players.find(p => p.socketId === socket.id) || game.players.find(p => !p.socketId && p.id === (dbUser ? dbUser.id : game.socketMap[socket.id]))
         
         // If player known, send state
         if (player) {
              updateAll()
         } else {
-            // Send empty/spectator state
              socket.emit('game-update', { 
                  phase: game.phase,
                  players: game.players,
@@ -88,7 +107,13 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
         }
 
         socket.on('join-game', (data: { username: string, userId: string }) => {
-          game.addPlayer(socket.id, data.username, data.userId)
+          if (socket.data.user) {
+              // FORCE USE OF AUTH INFO
+              game.addPlayer(socket.id, socket.data.user.username, socket.data.user.id, socket.data.user.avatar, socket.data.user.elo)
+          } else {
+              // GUEST MODE (Fallback)
+              game.addPlayer(socket.id, data.username, data.userId)
+          }
           updateAll()
         })
         
