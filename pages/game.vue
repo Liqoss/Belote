@@ -81,7 +81,33 @@
              <span class="team-score">Eux: {{ otherTeamScore }} (+{{ otherTeamCurrentScore }})</span>
           </div>
           
-          <NuxtLink to="/" class="action-btn icon-only" title="Retour Accueil">🏠</NuxtLink>
+          <!-- BURGER MENU BUTTON -->
+          <button class="burger-btn" @click="toggleMenu">
+             <span class="burger-icon">☰</span>
+          </button>
+        </div>
+
+        <!-- MENU OVERLAY -->
+        <div v-if="isMenuOpen" class="modal-overlay menu-overlay" @click.self="toggleMenu">
+            <div class="glass-panel menu-modal">
+                <h3>Menu</h3>
+                
+                <button v-if="isAdmin && gameState.phase !== 'lobby'" @click="resetGame(); toggleMenu()" class="chill-btn danger-btn full-width">
+                    ⚠️ Redémarrez la partie
+                </button>
+                
+                <button @click="changePseudo" class="chill-btn secondary full-width">
+                    ✏️ Changer de pseudo
+                </button>
+                
+                <button @click="leaveGame" class="chill-btn secondary full-width">
+                    🚪 Quitter la partie
+                </button>
+                
+                <button @click="toggleMenu" class="chill-btn small ghost-btn" style="margin-top: 1rem;">
+                    Fermer
+                </button>
+            </div>
         </div>
 
         <div class="board-layout">
@@ -315,7 +341,8 @@ const {
     myTeamScore,
     otherTeamScore,
     myTeamCurrentScore,
-    otherTeamCurrentScore
+    otherTeamCurrentScore,
+    isAdmin // <--- Add this
 } = useBeloteGame()
 
 const humanCount = computed(() => {
@@ -331,6 +358,20 @@ const hasClickedReady = computed(() => {
     const userId = localStorage.getItem('belote_user_id')
     return gameState.value.readyPlayers?.includes(userId || '')
 })
+
+// --- BURGER MENU LOGIC ---
+const isMenuOpen = ref(false)
+const toggleMenu = () => isMenuOpen.value = !isMenuOpen.value
+
+const leaveGame = () => {
+    // Just navigate away. Socket disconnect handles the rest.
+    navigateTo('/')
+}
+
+const changePseudo = () => {
+    localStorage.removeItem('belote_username')
+    location.reload()
+}
 
 // --- IMMEDIATE BIDDING FEEDBACK ---
 const localBidMade = ref(false)
@@ -627,6 +668,53 @@ const dynamicMargin = computed(() => {
     cursor: pointer;
     font-weight: bold;
     margin-left: 1rem;
+}
+
+.danger-btn {
+    background: #ef4444; /* Red */
+    border: 1px solid #b91c1c;
+}
+.danger-btn:hover {
+    background: #dc2626;
+}
+
+/* Burger Button */
+.burger-btn {
+    background: transparent;
+    border: none;
+    color: white;
+    font-size: 1.8rem;
+    cursor: pointer;
+    padding: 0.2rem 0.5rem;
+    line-height: 1;
+}
+
+/* Menu Overlay */
+.menu-overlay {
+    z-index: 3000 !important; /* Above everything */
+    background: rgba(0,0,0,0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+    position: fixed;
+    top: 0;
+    left: 0;
+}
+
+.menu-modal {
+    width: 300px;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    align-items: center;
+    padding: 2rem;
+}
+
+.full-width {
+    width: 100%;
+    justify-content: center;
 }
 
 .scores {

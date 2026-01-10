@@ -1,7 +1,7 @@
 <template>
   <div class="page-container home-page">
     <div class="content-wrapper">
-      <h1 class="title">Famille Belote</h1>
+      <h1 class="title">Belote</h1>
       <p class="subtitle">Détendez-vous, jouez aux cartes, profitez du moment.</p>
 
       <!-- Decorative Cards -->

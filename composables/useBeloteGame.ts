@@ -72,6 +72,10 @@ export const useBeloteGame = () => {
         return gameState.value.turnIndex === myIndex.value
     })
 
+    const isAdmin = computed(() => {
+        return myIndex.value === 0
+    })
+
     // Score Helpers (Relative to "Me")
     const myTeamId = computed(() => {
         if (myIndex.value === -1) return 1 // Default
@@ -176,6 +180,7 @@ export const useBeloteGame = () => {
         playerCount,
         myIndex,
         isMyTurn,
+        isAdmin,
         isLobby,
         myTeamScore,
         otherTeamScore,

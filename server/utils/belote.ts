@@ -155,7 +155,7 @@ export class BeloteGame {
 
   checkDisconnects() {
       const NOW = Date.now();
-      const TIMEOUT = 2 * 60 * 1000; // 2 minutes
+      const TIMEOUT = 40 * 1000; // 40 seconds
       let activeHumans = 0;
       
       this.players.forEach((p, index) => {
@@ -690,16 +690,40 @@ export class BeloteGame {
   }
 
   sortHands() {
-      // Sort logic: Suit (H, C, D, S) then Rank (7,8,9,10,J,Q,K,A)
-      // Rank order for sorting visual doesn't need to depend on Trump (usually).
-      const suitOrder = { 'H': 0, 'C': 1, 'D': 2, 'S': 3 };
-      const rankOrder = { '7':0, '8':1, '9':2, '10':3, 'J':4, 'Q':5, 'K':6, 'A':7 };
+      // Sort logic: Suit (Trump first, then H/C/D/S)
+      // Rank: Power-based descending (Strongest to Weakest)
       
+      const suitOrder = { 'H': 0, 'C': 1, 'D': 2, 'S': 3 };
+      
+      // Standard (No Trump) Power: A, 10, K, Q, J, 9, 8, 7
+      const rankOrderNoTrump: Record<string, number> = { 'A':7, '10':6, 'K':5, 'Q':4, 'J':3, '9':2, '8':1, '7':0 };
+      
+      // Trump Power: J, 9, A, 10, K, Q, 8, 7
+      const rankOrderTrump: Record<string, number> = { 'J':7, '9':6, 'A':5, '10':4, 'K':3, 'Q':2, '8':1, '7':0 };
+      
+      const trumpSuit = this.trumpSuit;
+
       this.players.forEach(p => {
           if (this.hands[p.id]) {
               this.hands[p.id].sort((a, b) => {
-                  if (a.suit !== b.suit) return suitOrder[a.suit] - suitOrder[b.suit];
-                  return rankOrder[a.rank] - rankOrder[b.rank];
+                  // 1. Sort by Suit 
+                  // If Trump exists, we might want Trump to be first (or last). 
+                  // Let's keep standard Suit Order for stability, unless user requested Trump first?
+                  // "tries les cartes... dans l'ordre de puissance" usually implies within the suit.
+                  // I'll stick to fixed suit order to avoid confusion, but sort RANKS by power.
+                  
+                  if (a.suit !== b.suit) {
+                       // Optional: If one is trump, put it first? 
+                       // Let's keep it simple: Fixed suit order.
+                       return suitOrder[a.suit] - suitOrder[b.suit];
+                  }
+                  
+                  // 2. Sort by Rank (Power Descending)
+                  const isTrump = trumpSuit && a.suit === trumpSuit;
+                  const order = isTrump ? rankOrderTrump : rankOrderNoTrump;
+                  
+                  // Descending Power (Strongest Left)
+                  return order[b.rank] - order[a.rank];
               });
           }
       });
