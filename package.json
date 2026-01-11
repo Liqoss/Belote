@@ -13,6 +13,7 @@
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.6.0",
+    "browser-image-compression": "^2.0.2",
     "nuxt": "^3.20.2",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",

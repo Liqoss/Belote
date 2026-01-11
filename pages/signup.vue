@@ -65,7 +65,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
+import imageCompression from 'browser-image-compression'
 
 const route = useRoute()
 const token = route.query.token as string
@@ -97,14 +98,27 @@ onMounted(async () => {
         checkingToken.value = false
     }
 })
+
 const avatarFile = ref<File | null>(null)
 const loading = ref(false)
 const error = ref('')
 
-const handleFileChange = (e: any) => {
+const handleFileChange = async (e: any) => {
     const files = e.target.files
     if (files && files.length > 0) {
-        avatarFile.value = files[0]
+        const file = files[0]
+        try {
+            const options = {
+                maxSizeMB: 0.5,
+                maxWidthOrHeight: 300,
+                useWebWorker: true
+            }
+            const compressedFile = await imageCompression(file, options)
+            avatarFile.value = compressedFile
+        } catch (err) {
+            console.error('Compression error:', err)
+             avatarFile.value = file
+        }
     }
 }
 

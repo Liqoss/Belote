@@ -68,6 +68,7 @@
 <script setup lang="ts">
 import { ref, reactive, watchEffect } from 'vue'
 import { useAuth } from '~/composables/useAuth'
+import imageCompression from 'browser-image-compression'
 
 const { user, fetchUser } = useAuth()
 const loading = ref(false)
@@ -112,11 +113,26 @@ const triggerFileInput = () => {
     fileInput.value?.click()
 }
 
-const handleFileChange = (e: any) => {
+const handleFileChange = async (e: any) => {
     const files = e.target.files
     if (files && files.length > 0) {
-        avatarFile.value = files[0]
-        previewAvatar.value = URL.createObjectURL(files[0])
+        const file = files[0]
+        
+        try {
+            const options = {
+                maxSizeMB: 0.5,
+                maxWidthOrHeight: 300,
+                useWebWorker: true
+            }
+            const compressedFile = await imageCompression(file, options)
+            avatarFile.value = compressedFile
+            previewAvatar.value = URL.createObjectURL(compressedFile)
+        } catch (err) {
+            console.error('Compression error:', err)
+            // Fallback to original
+            avatarFile.value = file
+            previewAvatar.value = URL.createObjectURL(file)
+        }
     }
 }
 
