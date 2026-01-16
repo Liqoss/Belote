@@ -16,7 +16,7 @@ export const useBeloteGame = () => {
     const animationPhase = ref<'idle' | 'gathering' | 'flying'>('idle')
     const lastHandledTrick = ref<string>('')
 
-    const initSocket = () => {
+    const initSocket = (roomId?: string | number) => {
         const guestId = localStorage.getItem('belote_user_id') || 'user_' + Math.random().toString(36).substr(2, 9)
         if (!localStorage.getItem('belote_user_id')) localStorage.setItem('belote_user_id', guestId)
 
@@ -31,18 +31,18 @@ export const useBeloteGame = () => {
         
         socket.value.on('connect', () => {
             // Auto-join if Authenticated
-            if (user.value) {
-                console.log('Auto-joining as Authenticated User', user.value.username)
-                // We send explicit data too, but Backend prefers Cookies
-                socket.value?.emit('join-game', { username: user.value.username, userId: user.value.id })
+            if (user.value && roomId) {
+                console.log('Auto-joining as Authenticated User', user.value.username, 'to room', roomId)
+                socket.value?.emit('join-room', { roomId, username: user.value.username, userId: user.value.id })
                 hasJoined.value = true
             } 
-            else if (username.value) {
+            else if (username.value && roomId) {
                 // Guest rejoin logic
-                socket.value?.emit('join-game', { username: username.value, userId: guestId })
+                socket.value?.emit('join-room', { roomId, username: username.value, userId: guestId })
                 hasJoined.value = true
             } else {
-                socket.value?.emit('request-state') 
+                // Lobby Mode or No specific room
+                socket.value?.emit('get-rooms') 
             }
         })
         
@@ -109,14 +109,14 @@ export const useBeloteGame = () => {
     })
 
     // Actions
-    const joinGame = () => {
+    const joinGame = (roomId: string | number) => {
         // Guest Join
         if (!username.value || user.value) return 
         localStorage.setItem('belote_username', username.value)
         const userId = localStorage.getItem('belote_user_id')
         
-        if (socket.value && socket.value.connected) {
-             socket.value.emit('join-game', { username: username.value, userId })
+        if (socket.value && socket.value.connected && roomId) {
+             socket.value.emit('join-room', { roomId, username: username.value, userId })
              hasJoined.value = true
         }
     }
@@ -147,23 +147,23 @@ export const useBeloteGame = () => {
                 lastHandledTrick.value = trickStr
                 animatingTrick.value = newTrick
                 
-                // Step 1: Initialize (Cards appear at table positions)
+                // Step 1: Initialize (Cards locally at their table positions)
                 animationPhase.value = 'idle' 
                 
                 setTimeout(() => {
-                    // Step 2: Shrink (distinct action as requested)
-                    animationPhase.value = 'gathering' // repurposing 'gathering' as 'shrink'
+                    // Step 2: GATHER (All cards move to center pile)
+                    animationPhase.value = 'gathering'
                     
                     setTimeout(() => {
-                         // Step 3: Fly to winner
+                         // Step 3: FLY TO WINNER (The center pile moves to winner)
                         animationPhase.value = 'flying'
                         
                         setTimeout(() => {
                             // Step 4: Cleanup
                             animatingTrick.value = null
                             animationPhase.value = 'idle'
-                        }, ANIMATION_DURATION.FLY)
-                    }, ANIMATION_DURATION.SHRINK)
+                        }, 1500) // Slower flight (was 700) 
+                    }, 600) // Time to gather
                 }, 100)
             }
         }
@@ -197,6 +197,7 @@ export const useBeloteGame = () => {
         bid,
         playCard,
         setReady: () => socket.value?.emit('player-ready'),
-        resetGame: () => socket.value?.emit('reset-game')
+        resetGame: () => socket.value?.emit('reset-game'),
+        leaveSeat: () => socket.value?.emit('leave-room')
     }
 }

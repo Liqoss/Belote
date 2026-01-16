@@ -1,18 +1,16 @@
 import { Server as SocketServer } from 'socket.io'
 import type { NitroApp } from 'nitropack'
-import { BeloteGame } from '../utils/belote'
+// import { BeloteGame } from '../utils/belote' // No longer Single Game
+import { roomManager } from '../utils/roomManager'
 import { findUserById } from '../utils/db'
 
 let io: SocketServer
-// Initialize game. The callback will be set later via io connection hook or we can wrap it.
-// Actually, since 'updateAll' depends on 'io', we execute it only when io exists.
-const game = new BeloteGame()
 
 export default defineNitroPlugin((nitroApp: NitroApp) => {
   nitroApp.hooks.hook('request', (event) => {
     // @ts-ignore
     if (!io && event.node.res.socket?.server) {
-      console.log('Initializing Socket.io Server...')
+      console.log('Initializing Socket.io Server (Multi-Room)...')
       // @ts-ignore
       io = new SocketServer(event.node.res.socket.server, {
         path: '/socket.io',
@@ -22,11 +20,13 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
         }
       })
       
-      // Helper to update everyone with their own view
-      const updateAll = () => {
+      // Helper to update a specific room
+      const updateRoom = (roomId: number) => {
           if (!io) return
-          
-          // Construct Safe State (exclude sensitive info by default)
+          const game = roomManager.getRoom(roomId)
+          if (!game) return
+
+          // Construct Safe State
           const baseState = {
               phase: game.phase,
               players: game.players,
@@ -42,125 +42,185 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
               biddingRound: game.biddingRound,
               biddingHistory: game.biddingHistory,
               readyPlayers: game.readyPlayers
-              // Hands are NOT sent in baseState
           }
 
-          // Broadcast to ALL connected sockets (players + spectators)
-          io.sockets.sockets.forEach((socket) => {
-              // Identify if this socket belongs to a player
-              // We can reverse lookup or just check mapping
-              const playerId = game.socketMap[socket.id]
-              const player = game.players.find(p => p.id === playerId)
+          // Broadcast to specific ROOM channel
+          const roomChannel = `room_${roomId}`;
+          const roomSockets = io.sockets.adapter.rooms.get(roomChannel);
+          
+          if (roomSockets) {
+              for (const socketId of roomSockets) {
+                  const socket = io.sockets.sockets.get(socketId);
+                  if (socket) {
+                    const playerId = game.socketMap[socket.id]
+                    const player = game.players.find(p => p.id === playerId)
 
-              // If it's a known player, send their hand
-              if (player && !player.isBot) {
-                  socket.emit('game-update', { 
-                      ...baseState, 
-                      hands: { [player.id]: game.hands[player.id] || [] } 
-                  })
-              } else {
-                  // Spectator or Lobby User: Send public state
-                  socket.emit('game-update', {
-                      ...baseState
-                  })
+                    if (player && !player.isBot) {
+                        socket.emit('game-update', { 
+                            ...baseState, 
+                            hands: { [player.id]: game.hands[player.id] || [] } 
+                        })
+                    } else {
+                        // Spectator
+                        socket.emit('game-update', { ...baseState })
+                    }
+                  }
               }
-          })
+          }
+          
+          // Also Notify Lobby of update (personalized)
+          if (io) {
+              const allSockets = io.sockets.sockets;
+              allSockets.forEach(s => {
+                   // Try User ID (Auth), or fallback to Socket ID (Guest default)
+                   // This covers most cases. 
+                   const uId = s.data.user ? s.data.user.id : s.id;
+                   s.emit('lobby-update', roomManager.getLobbyList(uId));
+              });
+          }
       }
 
-      // Hook the update method
-      game.onUpdate = updateAll
-
-// Helper to parse cookies
-const parseCookies = (str?: string) => {
-  if (!str) return {}
-  return Object.fromEntries(str.split('; ').map(c => c.split('=')))
-}
+    // Helper to parse cookies
+    const parseCookies = (str?: string) => {
+      if (!str) return {}
+      return Object.fromEntries(str.split('; ').map(c => c.split('=')))
+    }
 
       io.on('connection', (socket) => {
-        console.log('New client connected:', socket.id)
+        // console.log('Client connected:', socket.id) // noisy
 
         // AUTHENTICATION
         const cookies = parseCookies(socket.handshake.headers.cookie)
         const userId = cookies['belote_session']
-        let dbUser: any = null
         
         if (userId) {
-            dbUser = findUserById(userId)
+            const dbUser = findUserById(userId)
             if (dbUser) {
-                console.log(`[SOCKET] Authenticated User: ${dbUser.username} (${dbUser.id})`)
                 socket.data.user = dbUser
             }
         }
 
-        // Initial Update for this specific client
-        const player = game.players.find(p => p.socketId === socket.id) || game.players.find(p => !p.socketId && p.id === (dbUser ? dbUser.id : game.socketMap[socket.id]))
-        
-        // If player known, send state
-        if (player) {
-             updateAll()
-        } else {
-             socket.emit('game-update', { 
-                 phase: game.phase,
-                 players: game.players,
-                 // ... minimal state
-             })
-        }
+        // LOBBY: Send initial list
+        socket.emit('room-list', roomManager.getLobbyList(socket.data.user?.id || socket.id));
 
-        socket.on('join-game', (data: { username: string, userId: string }) => {
-          if (socket.data.user) {
-              // FORCE USE OF AUTH INFO
-              game.addPlayer(socket.id, socket.data.user.username, socket.data.user.id, socket.data.user.avatar, socket.data.user.elo)
-          } else {
-              // GUEST MODE (Fallback)
-              game.addPlayer(socket.id, data.username, data.userId)
-          }
-          updateAll()
+        socket.on('get-rooms', () => {
+             socket.emit('room-list', roomManager.getLobbyList(socket.data.user?.id || socket.id));
+        });
+
+        // JOIN ROOM
+        socket.on('join-room', (data: { roomId: number, username: string, userId: string }) => {
+             const roomId = Number(data.roomId);
+             if (!roomId || roomId < 1 || roomId > 100) return;
+
+             // Leave execution context of previous room if any
+             if (socket.data.roomId && socket.data.roomId !== roomId) {
+                 socket.leave(`room_${socket.data.roomId}`);
+                 // Should we remove player from prev game? 
+                 // Yes, relying on disconnect logic or explicit leave? 
+                 // For now, let's just handle the new join.
+             }
+
+             socket.join(`room_${roomId}`);
+             socket.data.roomId = roomId;
+
+             const game = roomManager.getRoom(roomId);
+             if (!game) return; // Should not happen given getRoom logic
+
+             // Bind Update Trigger (Idempotent)
+             game.onUpdate = () => updateRoom(roomId);
+
+             // Add Player
+             if (socket.data.user) {
+                 game.addPlayer(socket.id, socket.data.user.username, socket.data.user.id, socket.data.user.avatar, socket.data.user.elo)
+             } else {
+                 game.addPlayer(socket.id, data.username || 'Guest', data.userId || socket.id)
+             }
+             
+             updateRoom(roomId);
+        })
+
+        socket.on('leave-room', () => {
+             const game = getGame();
+             if (game) {
+                 game.leaveSeat(socket.id);
+                 game.onUpdate();
+                 socket.leave(`room_${socket.data.roomId}`);
+                 socket.data.roomId = null;
+             }
         })
         
+        // --- GAME ACTIONS (Proxy to specific Game) ---
+
+        const getGame = () => {
+            if (!socket.data.roomId) return null;
+            return roomManager.getRoom(socket.data.roomId);
+        }
+
         socket.on('start-game-bots', () => {
-             game.addBots()
-             game.startGame()
-             updateAll()
+             const game = getGame();
+             if (game) {
+                 game.addBots();
+                 game.startGame();
+                 game.onUpdate(); // Trigger update
+             }
         })
 
         socket.on('start-game', () => {
-            game.startGame()
-            updateAll()
+            const game = getGame();
+            if (game) {
+                game.startGame();
+                game.onUpdate();
+            }
         })
         
         socket.on('play-card', (cardId: string) => {
-            game.playCard(socket.id, cardId)
-            updateAll()
+            const game = getGame();
+            if (game) {
+                game.playCard(socket.id, cardId);
+                // game.onUpdate() is called internally by playCard
+            }
         })
         
         socket.on('player-bid', (data: { action: 'take' | 'pass', suit?: any }) => {
-            game.playerBid(socket.id, data.action, data.suit)
-            updateAll()
+            const game = getGame();
+            if (game) game.playerBid(socket.id, data.action, data.suit);
         })
 
         socket.on('player-ready', () => {
-            game.playerSetReady(socket.id)
-            updateAll()
+            const game = getGame();
+            if (game) game.playerSetReady(socket.id);
         })
 
         socket.on('reset-game', () => {
-            console.log('[SOCKET] Reset Game requested by', socket.id)
-            game.fullReset()
-            updateAll()
+            const game = getGame();
+            if (game) {
+                game.fullReset();
+                game.onUpdate();
+            }
         })
 
         socket.on('disconnect', () => {
-          console.log('Client disconnected:', socket.id)
-          game.removePlayer(socket.id)
-          updateAll()
+          if (socket.data.roomId) {
+              const game = roomManager.getRoom(socket.data.roomId);
+              if (game) {
+                  game.removePlayer(socket.id);
+                  game.onUpdate();
+              }
+          }
         })
         
-        // Loop for Timeouts and Bot updates
-        // Note: game.checkBotTurn already uses internal timeouts, but checkDisconnects needs polling
-        setInterval(() => {
-            game.checkStalled(); 
-        }, 5000)
       })
+      
+      // Global Loop for Timeouts (Iterate active rooms)
+      // This might become expensive if 100 rooms are active. 
+      // But 100 iterations every 5s is nothing.
+      setInterval(() => {
+           for (const [id, game] of roomManager.rooms) {
+               if (game.phase !== 'lobby') {
+                   game.checkStalled();
+               }
+           }
+      }, 5000)
 
       // @ts-ignore
       nitroApp.io = io

@@ -24,7 +24,7 @@
               <h3>Bonjour {{ user.username }} 👋</h3>
               <p class="elo-badge">🏆 ELO: {{ user.elo || 100 }}</p>
               
-              <button @click="navigateTo('/game')" class="chill-btn play-btn">
+              <button @click="navigateTo('/lobby')" class="chill-btn play-btn">
                 Jouer
               </button>
               
@@ -57,7 +57,7 @@
       </div>
       
       <div class="version">
-        <span>Version 1.4.1</span>
+        <span>v.2.0.0</span>
       </div>
     </div>
   </div>
@@ -77,14 +77,6 @@ const handleLogout = async () => {
 onMounted(async () => {
   setTimeout(() => { loading.value = false }, 500)
 })
-
-const handlePlayAction = () => {
-    if (isAuthenticated.value) {
-        navigateTo('/game')
-    } else {
-        navigateTo('/login')
-    }
-}
 </script>
 
 <style scoped lang="scss">
@@ -110,7 +102,6 @@ const handlePlayAction = () => {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   text-shadow: 0 4px 20px rgba(251, 191, 36, 0.3);
-  /* animation removed as requested */
 }
 
 .subtitle {
@@ -286,46 +277,5 @@ const handlePlayAction = () => {
         background: rgba(239, 68, 68, 0.2);
         transform: scale(1.1);
     }
-}
-
-.history-list {
-    margin-top: 1.5rem;
-    width: 100%;
-    
-    h4 {
-        color: var(--text-muted);
-        font-size: 0.9rem;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        margin-bottom: 0.5rem;
-    }
-}
-
-.history-item {
-    display: flex;
-    justify-content: space-between;
-    background: rgba(0,0,0,0.2);
-    padding: 0.5rem 1rem;
-    border-radius: 8px;
-    margin-bottom: 0.5rem;
-    font-size: 0.9rem;
-    border-left: 3px solid #666;
-    
-    &.win {
-        border-left-color: #10b981;
-        background: rgba(16, 185, 129, 0.1);
-        .outcome { color: #10b981; }
-        .elo-change { color: #10b981; }
-    }
-    
-    &:not(.win) {
-        border-left-color: #ef4444;
-        background: rgba(239, 68, 68, 0.1);
-        .outcome { color: #ef4444; }
-        .elo-change { color: #ef4444; }
-    }
-    
-    .outcome { font-weight: bold; }
-    .score { color: #ccc; }
 }
 </style>

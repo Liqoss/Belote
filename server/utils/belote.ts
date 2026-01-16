@@ -157,6 +157,29 @@ export class BeloteGame {
     delete this.socketMap[socketId];
   }
 
+  /**
+   * Called when user explicitly clicks "Quit"
+   * If game hasn't started (Lobby), we can fully remove them.
+   * If game started, we just disconnect them (they remain part of the game/restriction).
+   */
+  leaveSeat(socketId: string) {
+      const userId = this.socketMap[socketId];
+      if (!userId) return;
+
+      if (this.phase === 'lobby') {
+          // Fully remove from game
+          this.players = this.players.filter(p => p.id !== userId);
+          delete this.socketMap[socketId];
+          console.log(`[BELOTE] User ${userId} left the lobby seat.`);
+          
+          // If room becomes empty, it might be reset or cleaned up by RoomManager logic?
+          // RoomManager doesn't auto-delete rooms, but they become "empty".
+      } else {
+          // Game in progress: Just treat as disconnect
+          this.removePlayer(socketId);
+      }
+  }
+
   checkDisconnects() {
       const NOW = Date.now();
       const TIMEOUT = 40 * 1000; // 40 seconds
