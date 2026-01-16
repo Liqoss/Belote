@@ -39,16 +39,7 @@
                   <line x1="12" y1="2" x2="12" y2="12"></line>
                 </svg>
               </button>
-              
-              <div v-if="history.length > 0" class="history-list">
-                  <h4>Dernières Parties</h4>
-                  <div v-for="game in history" :key="game.id" class="history-item" :class="{ win: game.winner_team === game.my_team }">
-                      <span class="outcome">{{ game.winner_team === game.my_team ? 'VICTOIRE' : 'DÉFAITE' }}</span>
-                      <span class="score">{{ game.team1_score }} - {{ game.team2_score }}</span>
-                      <span class="elo-change">{{ game.elo_change > 0 ? '+' : ''}}{{ game.elo_change }}</span>
-                  </div>
-              </div>
-          </div>
+            </div>
 
           <div v-else class="auth-buttons">
               <button @click="navigateTo('/login')" class="chill-btn">
@@ -66,7 +57,7 @@
       </div>
       
       <div class="version">
-        <span>Version 1.3.2</span>
+        <span>Version 1.4.1</span>
       </div>
     </div>
   </div>
@@ -78,25 +69,13 @@ import { useAuth } from '~/composables/useAuth'
 
 const { user, isAuthenticated, logout } = useAuth()
 const loading = ref(true)
-const history = ref<any[]>([])
 
 const handleLogout = async () => {
     await logout()
 }
 
-const fetchHistory = async () => {
-    try {
-        const res = await $fetch('/api/user/history')
-        // @ts-ignore
-        if (res.success) history.value = res.history
-    } catch (e) { console.error(e) }
-}
-
 onMounted(async () => {
   setTimeout(() => { loading.value = false }, 500)
-  if ( isAuthenticated.value ) {
-      await fetchHistory()
-  }
 })
 
 const handlePlayAction = () => {

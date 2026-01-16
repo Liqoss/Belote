@@ -53,6 +53,16 @@
             <div v-if="error" class="error-msg">{{ error }}</div>
             <div v-if="success" class="success-msg">Profil mis à jour !</div><br/>
 
+            <div v-if="history.length > 0" class="history-list">
+                  <h4>Dernières Parties</h4>
+                  <div v-for="game in history" :key="game.id" class="history-item" :class="{ win: game.winner_team === game.my_team }">
+                      <span class="outcome">{{ game.winner_team === game.my_team ? 'VICTOIRE' : 'DÉFAITE' }}</span>
+                      <span class="score">{{ game.team1_score }} - {{ game.team2_score }}</span>
+                      <span class="elo-change">{{ game.elo_change > 0 ? '+' : ''}}{{ game.elo_change }}</span>
+                  </div>
+            </div>
+
+
             <button type="submit" class="chill-btn action-btn" :disabled="loading">
                 {{ loading ? 'Enregistrement...' : "Sauvegarder" }}
             </button>
@@ -102,12 +112,22 @@ const generateInvite = async () => {
 }
 
 // Init form with current user data
+const history = ref<any[]>([])
+
+const fetchHistory = async () => {
+    try {
+        const res: any = await $fetch('/api/user/history')
+        if (res.success) history.value = res.history
+    } catch (e) { console.error(e) }
+}
+
 watchEffect(() => {
     if (user.value) {
         form.username = user.value.username
-         // security_question is usually hidden or explicitly set to change
+        fetchHistory()
     }
 })
+
 
 const triggerFileInput = () => {
     fileInput.value?.click()
@@ -120,8 +140,8 @@ const handleFileChange = async (e: any) => {
         
         try {
             const options = {
-                maxSizeMB: 0.5,
-                maxWidthOrHeight: 300,
+                maxSizeMB: 0.2,
+                maxWidthOrHeight: 256,
                 useWebWorker: true
             }
             const compressedFile = await imageCompression(file, options)
@@ -325,5 +345,46 @@ const handleUpdate = async () => {
     background: rgba(16, 185, 129, 0.1);
     padding: 0.5rem;
     border-radius: 4px;
+}
+
+.history-list {
+    margin-top: 1rem;
+    width: 100%;
+    
+    h4 {
+        color: #aaa;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 0.5rem;
+    }
+}
+
+.history-item {
+    display: flex;
+    justify-content: space-between;
+    background: rgba(0,0,0,0.2);
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+    border-left: 3px solid #666;
+    
+    &.win {
+        border-left-color: #10b981;
+        background: rgba(16, 185, 129, 0.1);
+        .outcome { color: #10b981; }
+        .elo-change { color: #10b981; }
+    }
+    
+    &:not(.win) {
+        border-left-color: #ef4444;
+        background: rgba(239, 68, 68, 0.1);
+        .outcome { color: #ef4444; }
+        .elo-change { color: #ef4444; }
+    }
+    
+    .outcome { font-weight: bold; }
+    .score { color: #ccc; }
 }
 </style>
