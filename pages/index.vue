@@ -57,7 +57,7 @@
       </div>
       
       <div class="version">
-        <span>v.2.0.0</span>
+        <span>v.2.1.0</span>
       </div>
     </div>
   </div>

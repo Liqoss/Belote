@@ -1,6 +1,6 @@
 import { ref, computed, watch } from 'vue'
 import { io, type Socket } from 'socket.io-client'
-import type { GameState, Card, Suit, Player } from '~/types/belote'
+import type { GameState, Card, Suit, Player, Announcement } from '~/types/belote'
 import { useAuth } from '~/composables/useAuth'
 
 export const useBeloteGame = () => {
@@ -9,6 +9,7 @@ export const useBeloteGame = () => {
     const username = ref('')
     const hasJoined = ref(false)
     const myHand = ref<Card[]>([])
+    const possibleAnnouncements = ref<Announcement[]>([])
     const { user } = useAuth()
     
     // Animation specific state
@@ -56,6 +57,12 @@ export const useBeloteGame = () => {
                 myHand.value = state.hands[effectiveId]
             } else if ((state as any).myHand) {
                  myHand.value = (state as any).myHand
+            }
+
+            if ((state as any).possibleAnnouncements) {
+                possibleAnnouncements.value = (state as any).possibleAnnouncements
+            } else {
+                possibleAnnouncements.value = []
             }
         })
     }
@@ -196,7 +203,11 @@ export const useBeloteGame = () => {
         startGame,
         bid,
         playCard,
+
+        declareAnnouncement: (decision: boolean) => socket.value?.emit('declare-announcement', decision),
         setReady: () => socket.value?.emit('player-ready'),
+        // State
+        possibleAnnouncements,
         resetGame: () => socket.value?.emit('reset-game'),
         leaveSeat: () => socket.value?.emit('leave-room')
     }

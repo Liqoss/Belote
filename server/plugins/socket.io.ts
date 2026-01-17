@@ -58,7 +58,8 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
                     if (player && !player.isBot) {
                         socket.emit('game-update', { 
                             ...baseState, 
-                            hands: { [player.id]: game.hands[player.id] || [] } 
+                            hands: { [player.id]: game.hands[player.id] || [] },
+                            possibleAnnouncements: game.possibleAnnouncements[player.id] || []
                         })
                     } else {
                         // Spectator
@@ -184,6 +185,11 @@ export default defineNitroPlugin((nitroApp: NitroApp) => {
         socket.on('player-bid', (data: { action: 'take' | 'pass', suit?: any }) => {
             const game = getGame();
             if (game) game.playerBid(socket.id, data.action, data.suit);
+        })
+        
+        socket.on('declare-announcement', (decision: boolean) => {
+            const game = getGame();
+            if (game) game.playerDeclare(socket.id, decision);
         })
 
         socket.on('player-ready', () => {

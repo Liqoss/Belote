@@ -1,4 +1,4 @@
-import { type Suit, type Rank, type Card as ICard, type Player, type GameState } from '~/types/belote';
+import { type Suit, type Rank, type Card as ICard, type Player, type GameState, type Announcement, type AnnouncementType } from '~/types/belote';
 import { createGame, addGameParticipant, updateUserElo } from './db';
 import crypto from 'crypto';
 
@@ -57,7 +57,12 @@ export class BeloteGame {
   biddingRound: 1 | 2 = 1;
   bidTakerIndex: number | null = null;
   biddingHistory: { playerId: string, username: string, action: 'pass' | 'take', suit?: Suit }[] = [];
-  readyPlayers: string[] = [];
+  readyPlayers: string[];
+  
+  // Announcements
+  possibleAnnouncements: Record<string, Announcement[]> = {}; // Private
+  pendingDeclarations: Record<string, Announcement[]> = {}; // Player decisions
+  validAnnouncements: Record<string, Announcement[]> = {}; // Public results = [];
   
   isResolving: boolean = false; // New State Flag
   
@@ -278,7 +283,60 @@ export class BeloteGame {
     const ranks: Rank[] = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
     this.deck = [];
     suits.forEach(s => ranks.forEach(r => this.deck.push(new Card(s, r))));
+    this.deck = [];
+    suits.forEach(s => ranks.forEach(r => this.deck.push(new Card(s, r))));
+    
+    // --- RIGGED DECK FOR TESTING (FORCE TIERCE/QUINTE) ---
+    // User requested to force "mes cartes" (my cards) to have tierce/quinte.
+    // Assuming "me" is usually Player 0 or the first human.
+    // Let's rig Player 0 to have a Quinte Flush in Hearts (9, 10, J, Q, K).
+    
+    // 1. Remove specific cards
+    const riggedIds = ['9H', '10H', 'JH', 'QH', 'KH'];
+    this.deck = this.deck.filter(c => !riggedIds.includes(c.id));
     this.shuffle(this.deck);
+    
+    // 2. Create the rigged set
+    const riggedCards = [
+        new Card('H', '9'),
+        new Card('H', '10'),
+        new Card('H', 'J'),
+        new Card('H', 'Q'),
+        new Card('H', 'K')
+    ];
+    
+    // 3. Place them at the TOP of the deck so they are dealt to Player 0.
+    // Dealing logic: 3 cards to P0, then 3 to P1... then 2 to P0...
+    // Total 5 cards initially. 
+    // If we put 5 rigged cards at top:
+    // P0 gets cards 0,1,2.
+    // P1 gets 3,4,5. 
+    // P2 gets 6,7,8.
+    // P3 gets 9,10,11.
+    // P0 gets 12,13. -> Total 5.
+    
+    // So indices for P0 are: 0, 1, 2 AND 12, 13.
+    // We need to insert rigged cards at 0, 1, 2, 12, 13.
+    
+    // Steps:
+    // Insert 3 cards at 0.
+    // Insert 2 cards at 12 (after 3+3+3+3 = 12 cards have been passed? Wait).
+    // Initial deck size = 32.
+    // Logic: splicing.
+    
+    this.deck.splice(0, 0, riggedCards[0], riggedCards[1], riggedCards[2]); // 0,1,2
+    // Now deck has 3 rigged + rest.
+    // We need to skip: P1(3), P2(3), P3(3) = 9 cards.
+    // Index 0,1,2 are P0.
+    // Index 3..11 are P1,P2,P3.
+    // Index 12 is next for P0.
+    this.deck.splice(12, 0, riggedCards[3], riggedCards[4]);
+    
+    // For later dealing (last 3 cards), we leave it random.
+    // So P0 will have 9H, 10H, JH + QH, KH + 3 randoms.
+    // -----------------------------------------------------
+
+    // this.shuffle(this.deck); // DO NOT SHUFFLE AGAIN obviously
 
     this.phase = 'dealing';
     this.onUpdate();
@@ -409,6 +467,9 @@ export class BeloteGame {
       
       this.onUpdate(); // Show chaos (unsorted but full hand)
 
+      // Calculate Announcements
+      this.players.forEach(p => this.calculateAnnouncements(p.id));
+
       // SORTING STEP (8 Cards)
       setTimeout(() => {
           this.sortHands();
@@ -517,6 +578,11 @@ export class BeloteGame {
     const winnerIndex = this.players.findIndex(p => p.id === winnerInfo.playerId);
     const winningTeam = (winnerIndex % 2 === 0) ? 'team1' : 'team2';
     this.currentScores[winningTeam] += points;
+    
+    // Resolve Announcements (End of First Trick)
+    if (this.players.some(p => this.hands[p.id]?.length === 7)) {
+        this.resolveAnnouncements();
+    }
     
     // 3. Update State
     this.turnIndex = winnerIndex;
@@ -654,7 +720,175 @@ export class BeloteGame {
       }
   }
   
-  getTrickWinner(trick: {playerId: string, card: Card}[], trump: Suit) {
+  // --- ANNOUNCEMENTS LOGIC ---
+
+  calculateAnnouncements(playerId: string) {
+      const hand = this.hands[playerId];
+      if (!hand) return;
+
+      const announcements: Announcement[] = [];
+      const rankValues: Record<string, number> = { 'A': 7, 'K': 6, 'Q': 5, 'J': 4, '10': 3, '9': 2, '8': 1, '7': 0 };
+
+      // 1. SQUARES (Carrés)
+      const rankCounts: Record<string, Card[]> = {};
+      hand.forEach(c => {
+          if (!rankCounts[c.rank]) rankCounts[c.rank] = [];
+          rankCounts[c.rank].push(c);
+      });
+
+      Object.entries(rankCounts).forEach(([rank, cards]) => {
+          if (cards.length === 4) {
+              let pts = 0;
+              // Values: J=200, 9=150, A/10/K/Q=100. 8/7=0 (No square)
+              if (rank === 'J') pts = 200;
+              else if (rank === '9') pts = 150;
+              else if (['A', '10', 'K', 'Q'].includes(rank)) pts = 100;
+              
+              if (pts > 0) {
+                  announcements.push({
+                      type: 'square',
+                      cards: cards,
+                      height: rank as Rank,
+                      points: pts
+                  });
+              }
+          }
+      });
+
+      // 2. SEQUENCES (Suites)
+      const suits: Suit[] = ['H', 'D', 'C', 'S'];
+      suits.forEach(suit => {
+          // Sort descending by rank
+          const suitCards = hand.filter(c => c.suit === suit).sort((a, b) => rankValues[b.rank] - rankValues[a.rank]);
+          if (suitCards.length < 3) return;
+
+          let currentSeq: Card[] = [suitCards[0]];
+          
+          for (let i = 1; i < suitCards.length; i++) {
+              const prev = suitCards[i-1];
+              const curr = suitCards[i];
+              
+              if (rankValues[prev.rank] - rankValues[curr.rank] === 1) {
+                  currentSeq.push(curr);
+              } else {
+                  this.pushSequenceIfValid(announcements, currentSeq);
+                  currentSeq = [curr];
+              }
+          }
+          this.pushSequenceIfValid(announcements, currentSeq);
+      });
+
+      this.possibleAnnouncements[playerId] = announcements;
+      if (announcements.length > 0) {
+          console.log(`[BELOTE] Calculated announcements for ${this.players.find(p => p.id === playerId)?.username}: Found ${announcements.length}`);
+      }
+  }
+
+  pushSequenceIfValid(list: Announcement[], seq: Card[]) {
+      if (seq.length >= 3) {
+          const type = seq.length === 3 ? 'tierce' : (seq.length === 4 ? 'quarte' : 'quinte');
+          // Points: Tierce=20, Quarte=50, Quinte=100
+          // If > 5, counts as Quinte (100).
+          const points = seq.length >= 5 ? 100 : (seq.length === 4 ? 50 : 20);
+          
+          list.push({
+              type: type,
+              cards: [...seq], 
+              height: seq[0].rank, 
+              suit: seq[0].suit,
+              points: points
+          });
+      }
+  }
+
+  playerDeclare(socketId: string, declaration: boolean) {
+      const userId = this.socketMap[socketId];
+      if (!userId) return;
+      
+      if (this.phase !== 'playing') return;
+
+      if (declaration) {
+          this.pendingDeclarations[userId] = this.possibleAnnouncements[userId] || [];
+          console.log(`[BELOTE] Player ${userId} DECLARED.`);
+      } else {
+           this.pendingDeclarations[userId] = []; // Explicit refusal
+           console.log(`[BELOTE] Player ${userId} REFUSED announcements.`);
+      }
+  }
+
+  resolveAnnouncements() {
+      // Logic:
+      // 1. Compare Team 1 Best vs Team 2 Best.
+      // 2. Best announcement wins.
+      // 3. Winner scores ALL their team's announcements. Loser scores 0.
+      // 4. Equality? Logic is complex (Height, then Rank, then "Atout?"). 
+      //    Simulated: Team 1 Priority if strictly better.
+      
+      const team1Ids = this.players.filter((_, i) => i % 2 === 0).map(p => p.id);
+      const team2Ids = this.players.filter((_, i) => i % 2 !== 0).map(p => p.id);
+
+      const t1Decls = team1Ids.flatMap(id => this.pendingDeclarations[id] || []);
+      const t2Decls = team2Ids.flatMap(id => this.pendingDeclarations[id] || []);
+
+      if (t1Decls.length === 0 && t2Decls.length === 0) return;
+
+      const getVal = (a: Announcement) => {
+          // Priority: Square > Quinte > Quarte > Tierce
+          const typeScore = { 'square': 4000, 'quinte': 3000, 'quarte': 2000, 'tierce': 1000 }[a.type];
+          // Height Score
+          const rankScore = { 'A': 7, 'K': 6, 'Q': 5, 'J': 4, '10': 3, '9': 2, '8': 1, '7': 0 }[a.height];
+          return typeScore + rankScore;
+      };
+      
+      const best1 = t1Decls.sort((a,b) => getVal(b) - getVal(a))[0];
+      const best2 = t2Decls.sort((a,b) => getVal(b) - getVal(a))[0];
+      
+      let winnerInfo: { team: 'team1' | 'team2', decls: Announcement[] } | null = null;
+      
+      if (best1 && !best2) winnerInfo = { team: 'team1', decls: t1Decls };
+      else if (!best1 && best2) winnerInfo = { team: 'team2', decls: t2Decls };
+      else if (best1 && best2) {
+          const v1 = getVal(best1);
+          const v2 = getVal(best2);
+          if (v1 > v2) winnerInfo = { team: 'team1', decls: t1Decls };
+          else if (v2 > v1) winnerInfo = { team: 'team2', decls: t2Decls };
+          else {
+              // Exact tie (same type, same height).
+              // Check Trump?
+              // Standard: Trump sequence beats non-trump.
+              // If both non-trump or both trump -> Cancelled?
+              // Or "Equality cancels"?
+              // Simplification: Priority to Team 1 if Trump.
+               const is1Trump = (best1.suit === this.trumpSuit);
+               const is2Trump = (best2.suit === this.trumpSuit);
+               
+               if (is1Trump && !is2Trump) winnerInfo = { team: 'team1', decls: t1Decls };
+               else if (!is1Trump && is2Trump) winnerInfo = { team: 'team2', decls: t2Decls };
+               else {
+                   winnerInfo = null; // Annulled
+               }
+          }
+      }
+
+      if (winnerInfo) {
+          let total = 0;
+          winnerInfo.decls.forEach(d => total += d.points);
+          this.currentScores[winnerInfo.team] += total;
+          
+          // Publish for UI
+          const winIds = (winnerInfo.team === 'team1' ? team1Ids : team2Ids);
+          winIds.forEach(id => {
+             if (this.pendingDeclarations[id]) {
+                 this.validAnnouncements[id] = this.pendingDeclarations[id];
+             }
+          });
+      }
+      
+      // Cleanup
+      this.pendingDeclarations = {};
+  }
+
+  getTrickWinner(trick: { playerId: string, card: Card }[], trump: Suit): { playerId: string, card: Card } {
       const ledSuit = trick[0].card.suit;
       let activeBest = trick[0];
       

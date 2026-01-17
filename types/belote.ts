@@ -45,4 +45,18 @@ export interface GameState {
     biddingRound: 1 | 2;
     biddingHistory: { playerId: string, username: string, action: 'pass' | 'take', suit?: Suit }[];
     readyPlayers: string[]; // List of player IDs who are ready for next round
+    
+    // Announcements
+    validAnnouncements?: Record<string, Announcement[]>; // Publicly validated announcements
+    possibleAnnouncements?: Announcement[]; // Private: sent only to specific player
+}
+
+export type AnnouncementType = 'tierce' | 'quarte' | 'quinte' | 'square';
+
+export interface Announcement {
+    type: AnnouncementType;
+    cards: Card[];
+    height: Rank; // For comparison
+    suit?: Suit; // For sequences
+    points: number;
 }

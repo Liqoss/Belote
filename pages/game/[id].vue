@@ -120,147 +120,158 @@
                {{ getSuitIcon(gameState.trumpSuit) }}
            </div>
            
-            <!-- TOP PLAYER (Partner) -->
+               <!-- TOP PLAYER (Partner) -->
            <div class="player-slot top" :class="{ active: isTurn(playerIndex(2)) }">
               <div class="avatar-circle">
                  <img v-if="getAvatarUrl(playerIndex(2))" :src="getAvatarUrl(playerIndex(2))" class="avatar-img" />
                  <span v-else>{{ getAvatar(playerIndex(2)) }}</span>
               </div>
               <span class="player-name">{{ getName(playerIndex(2)) }}</span>
+                <div class="announcements-display" v-if="getValidAnnouncements(playerIndex(2)).length > 0">
+                    <div v-for="(ann, idx) in getValidAnnouncements(playerIndex(2))" :key="idx" class="announcement-badge">
+                        {{ formatType(ann.type) }}
+                    </div>
+                </div>
               <div v-if="getBiddingStatus(playerIndex(2))" class="bidding-status-text">
                   {{ getBiddingStatus(playerIndex(2)) }}
               </div>
            </div>
 
-           <!-- MIDDLE ROW (Left/Table/Right) -->
-           <div class="middle-row">
-              <!-- Left Player -->
-              <div class="player-slot left" :class="{ active: isTurn(playerIndex(1)) }">
-                <div class="avatar-circle small">
-                     <img v-if="getAvatarUrl(playerIndex(1))" :src="getAvatarUrl(playerIndex(1))" class="avatar-img" />
-                     <span v-else>{{ getAvatar(playerIndex(1)) }}</span>
-                </div>
-                <span class="player-name">{{ getName(playerIndex(1)) }}</span>
-                <div v-if="getBiddingStatus(playerIndex(1))" class="bidding-status-text">
-                    {{ getBiddingStatus(playerIndex(1)) }}
-                </div>
-              </div>
 
-              <!-- CENTER TABLE -->
-                  <div class="card-carpet">
-                     
-                     <!-- CENTER CONTENT AREA -->
-                     
-                     <!-- 1. DEALING ANIMATION -->
-                     <div class="dealing-animation" v-if="gameState.phase === 'dealing'">
-                         <div class="dealing-text">Distribution...</div>
-                      </div>
 
-                     <!-- 2. TRICK AREA (Playing) -->
-                      <div class="trick-area" v-else-if="gameState.phase === 'playing' && gameState.currentTrick">
-                         <div 
-                             v-for="(play, index) in gameState.currentTrick" 
-                             :key="play.playerId"
-                             class="trick-card"
-                             :class="getPositionClass(play.playerId)"
-                             :style="{ zIndex: index + 1 }"
-                         >
-                            <PlayingCard 
-                              :rank="play.card.rank" 
-                              :suit="play.card.suit" 
-                            />
-                         </div>
-                      </div>
 
-                        <button 
-                            v-if="gameState.lastTrick && gameState.phase === 'playing'" 
-                            class="chill-btn small ghost-btn" 
-                            @click="showLastTrickModal = !showLastTrickModal" 
-                            style="position: fixed; top: 4rem; right: 8px; z-index: 100; font-size: 0.8rem; padding: 4px 10px; margin: 0;"
-                        >
-                           Dernier pli
-                        </button>
-
-                      <!-- 3. BIDDING AREA -->
-                      <div class="bidding-area" v-else-if="gameState.phase === 'bidding' && gameState.turnedCard">
-                          <p class="bidding-title">Tour de parole</p>
-                          <div class="turned-card-display">
-                               <PlayingCard 
-                                   :rank="gameState.turnedCard.rank" 
-                                   :suit="gameState.turnedCard.suit"
-                                   class="center-turned"
-                               />
-                           </div>
-                           
-                           <!-- MY CONTROLS -->
-                           <div v-if="isTurn(myIndex) && !localBidMade" class="bidding-controls">
-                               <div v-if="gameState.biddingRound === 1" class="round-actions">
-                                   <button @click="handleBid('take')" class="chill-btn small">Prendre</button>
-                                   <button @click="handleBid('pass')" class="chill-btn small secondary">Passer</button>
-                               </div>
-                               <div v-else class="round-actions">
-                                   <p>Choisir une couleur :</p>
-                                   <div class="color-picker">
-                                       <button v-for="suit in suits" :key="suit" 
-                                          @click="handleBid('take', suit)"
-                                          class="suit-btn" 
-                                          :class="{ 'red-suit': isRedSuit(suit), 'black-suit': !isRedSuit(suit) }"
-                                          :disabled="suit === gameState.turnedCard?.suit">
-                                           {{ getSuitIcon(suit) }}
-                                       </button>
-                                   </div>
-                                   <button @click="bid('pass')" class="chill-btn small secondary">Passer</button>
-                               </div>
-                           </div>
-                           <div v-else class="waiting-text">
-                               {{ getName(gameState.turnIndex ?? -1) }} réfléchit...
-                           </div>
-                      </div>
-
-                      <!-- 4. WAITING / FALLBACK -->
-                      <div v-else class="carpet-center">
-                         <span class="placeholder-text">
-                             <template v-if="gameState.phase === 'bidding'">
-                                 Distribution<span class="loading-dots"></span>
-                             </template>
-                             <template v-else-if="gameState.phase === 'lobby'">
-                                 En attente<span class="loading-dots"></span>
-                             </template>
-                             <template v-else></template>
-                         </span>
-                      </div>
+               <!-- MIDDLE ROW (Left/Table/Right) -->
+               <div class="middle-row">
+                  <!-- Left Player -->
+                  <div class="player-slot left" :class="{ active: isTurn(playerIndex(1)) }">
+                    <div class="avatar-circle small">
+                         <img v-if="getAvatarUrl(playerIndex(1))" :src="getAvatarUrl(playerIndex(1))" class="avatar-img" />
+                         <span v-else>{{ getAvatar(playerIndex(1)) }}</span>
+                    </div>
+                    <span class="player-name">{{ getName(playerIndex(1)) }}</span>
+                    <!-- Announcement Badges -->
+                    <div class="announcements-display" v-if="getValidAnnouncements(playerIndex(1)).length > 0">
+                        <div v-for="(ann, idx) in getValidAnnouncements(playerIndex(1))" :key="idx" class="announcement-badge">
+                            {{ formatType(ann.type) }}
+                        </div>
+                    </div>
+                    <div v-if="getBiddingStatus(playerIndex(1))" class="bidding-status-text">
+                        {{ getBiddingStatus(playerIndex(1)) }}
+                    </div>
                   </div>
+    
+                  <!-- CENTER TABLE -->
+                      <div class="card-carpet">
+                         
+                         <!-- CENTER CONTENT AREA -->
+                         
+                         <!-- 1. TRICK AREA (Playing) -->
+                          <div class="trick-area" v-if="gameState.phase === 'playing' && gameState.currentTrick">
+                             <div 
+                                 v-for="(play, index) in gameState.currentTrick" 
+                                 :key="play.playerId"
+                                 class="trick-card"
+                                 :class="getPositionClass(play.playerId)"
+                                 :style="{ zIndex: index + 1 }"
+                             >
+                                <PlayingCard 
+                                  :rank="play.card.rank" 
+                                  :suit="play.card.suit" 
+                                />
+                             </div>
+                          </div>
+    
+                            <button 
+                                v-if="gameState.lastTrick && gameState.phase === 'playing'" 
+                                class="chill-btn small ghost-btn" 
+                                @click="showLastTrickModal = !showLastTrickModal" 
+                                style="position: fixed; top: 4rem; right: 8px; z-index: 100; font-size: 0.8rem; padding: 4px 10px; margin: 0;"
+                            >
+                               Dernier pli
+                            </button>
+    
+                          <!-- 2. BIDDING AREA -->
+                          <div class="bidding-area" v-else-if="gameState.phase === 'bidding' && gameState.turnedCard">
+                              <p class="bidding-title">Tour de parole</p>
+                              <div class="turned-card-display">
+                                   <PlayingCard 
+                                       :rank="gameState.turnedCard.rank" 
+                                       :suit="gameState.turnedCard.suit"
+                                       class="center-turned"
+                                   />
+                               </div>
+                               
+                               <!-- MY CONTROLS -->
+                               <div v-if="isTurn(myIndex) && !localBidMade" class="bidding-controls">
+                                   <div v-if="gameState.biddingRound === 1" class="round-actions">
+                                       <button @click="handleBid('take')" class="chill-btn small">Prendre</button>
+                                       <button @click="handleBid('pass')" class="chill-btn small secondary">Passer</button>
+                                   </div>
+                                   <div v-else class="round-actions">
+                                       <p>Choisir une couleur :</p>
+                                       <div class="color-picker">
+                                           <button v-for="suit in suits" :key="suit" 
+                                              @click="handleBid('take', suit)"
+                                              class="suit-btn" 
+                                              :class="{ 'red-suit': isRedSuit(suit), 'black-suit': !isRedSuit(suit) }"
+                                              :disabled="suit === gameState.turnedCard?.suit">
+                                               {{ getSuitIcon(suit) }}
+                                           </button>
+                                       </div>
+                                       <button @click="bid('pass')" class="chill-btn small secondary">Passer</button>
+                                   </div>
+                               </div>
+                               <div v-else class="waiting-text">
+                                   {{ getName(gameState.turnIndex ?? -1) }} réfléchit...
+                               </div>
+                          </div>
+    
+                          <!-- 3. WAITING / FALLBACK -->
+                          <div v-else class="carpet-center">
+                             <span class="placeholder-text">
+                                 <template v-if="gameState.phase === 'dealing'">
+                                     <!-- Silent Dealing Phase - Animations happen in Hand -->
+                                 </template>
+                                 <template v-else-if="gameState.phase === 'lobby'">
+                                     En attente<span class="loading-dots"></span>
+                                 </template>
+                                 <template v-else></template>
+                             </span>
+                          </div>
+                      </div>
+    
+                  <!-- Right Player -->
+                  <div class="player-slot right" :class="{ active: isTurn(playerIndex(3)) }">
+                     <div class="avatar-circle small">
+                          <img v-if="getAvatarUrl(playerIndex(3))" :src="getAvatarUrl(playerIndex(3))" class="avatar-img" />
+                          <span v-else>{{ getAvatar(playerIndex(3)) }}</span>
+                     </div>
+                     <span class="player-name">{{ getName(playerIndex(3)) }}</span>
+                     <div v-if="getBiddingStatus(playerIndex(3))" class="bidding-status-text">
+                         {{ getBiddingStatus(playerIndex(3)) }}
+                     </div>
+                  </div>
+               </div>
+    
+               <!-- BOTTOM PLAYER (Me) -->
+               <div class="player-slot bottom" :class="{ active: isTurn(myIndex) }">
+                   <div v-if="isTurn(myIndex) && gameState.phase === 'playing'" class="my-turn-badge">À VOUS DE JOUER !</div>
+                   <TransitionGroup 
+                     name="hand-card" 
+                     tag="div" 
+                     class="my-hand"
+                   >
+                      <div 
+                        v-for="(card, index) in myHand" 
+                        :key="card.id"
+                        class="hand-card-wrapper"
+                        :style="{
+                            marginRight: (index === myHand.length - 1) ? '0px' : (dynamicMargin + 'px'),
+                            transitionDelay: gameState.phase === 'dealing' ? (index * 100) + 'ms' : '0ms'
+                        }"
+                        @click="tryPlayCard(card)"
+                      >
 
-              <!-- Right Player -->
-              <div class="player-slot right" :class="{ active: isTurn(playerIndex(3)) }">
-                 <div class="avatar-circle small">
-                      <img v-if="getAvatarUrl(playerIndex(3))" :src="getAvatarUrl(playerIndex(3))" class="avatar-img" />
-                      <span v-else>{{ getAvatar(playerIndex(3)) }}</span>
-                 </div>
-                 <span class="player-name">{{ getName(playerIndex(3)) }}</span>
-                 <div v-if="getBiddingStatus(playerIndex(3))" class="bidding-status-text">
-                     {{ getBiddingStatus(playerIndex(3)) }}
-                 </div>
-              </div>
-           </div>
-
-           <!-- BOTTOM PLAYER (Me) -->
-           <div class="player-slot bottom" :class="{ active: isTurn(myIndex) }">
-               <div v-if="isTurn(myIndex) && gameState.phase === 'playing'" class="my-turn-badge">À VOUS DE JOUER !</div>
-               <TransitionGroup 
-                 name="hand-card" 
-                 tag="div" 
-                 class="my-hand"
-               >
-                  <div 
-                    v-for="(card, index) in myHand" 
-                    :key="card.id"
-                    class="hand-card-wrapper"
-                    :style="{
-                        marginRight: (index === myHand.length - 1) ? '0px' : (dynamicMargin + 'px')
-                    }"
-                    @click="tryPlayCard(card)"
-                  >
                       <PlayingCard 
                         :rank="card.rank" 
                         :suit="card.suit" 
@@ -272,13 +283,24 @@
                   </div>
                </TransitionGroup>
                <span class="player-name me">{{ username }} (Moi)</span>
+               <div class="announcements-display" v-if="getValidAnnouncements(myIndex).length > 0">
+                   <div v-for="(ann, idx) in getValidAnnouncements(myIndex)" :key="idx" class="announcement-badge">
+                       {{ formatType(ann.type) }}
+                   </div>
+               </div>
                <div v-if="getBiddingStatus(myIndex)" class="bidding-status-text me-status">
                    {{ getBiddingStatus(myIndex) }}
                </div>
             </div>
          </div>
        </div>
-    </ClientOnly>
+     </ClientOnly>
+
+     <AnnouncementOverlay 
+        v-if="showAnnouncementOverlay" 
+        :announcements="possibleAnnouncements" 
+        @declare="onDeclare"
+     />
     
       <!-- ROUND SUMMARY MODAL -->
       <div class="login-modal-overlay" v-if="gameState.phase === 'round_summary' && !animatingTrick" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); display:flex; justify-content:center; align-items:center; z-index:200;">
@@ -329,7 +351,8 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useBeloteGame } from '~/composables/useBeloteGame'
 import PlayingCard from '~/components/PlayingCard.vue'
-import type { Card, Suit } from '~/types/belote'
+import AnnouncementOverlay from '~/components/AnnouncementOverlay.vue'
+import type { Card, Suit, Announcement } from '~/types/belote'
 
 const suits: Suit[] = ['H', 'D', 'C', 'S']
 const route = useRoute()
@@ -358,8 +381,53 @@ const {
     myTeamCurrentScore,
     otherTeamCurrentScore,
     isAdmin,
-    leaveSeat
+    leaveSeat,
+    possibleAnnouncements,
+    declareAnnouncement
 } = useBeloteGame()
+
+// --- ANNOUNCEMENT LOGIC ---
+const hasDecidedAnnouncement = ref(false)
+
+const showAnnouncementOverlay = computed(() => {
+    // Show if we have announcements, it's our turn, it's playing phase, and we haven't played yet (8 cards)
+    const hasAnns = possibleAnnouncements.value && possibleAnnouncements.value.length > 0
+    const playing = gameState.value.phase === 'playing'
+    const turn = isTurn(myIndex.value)
+    const fullHand = myHand.value.length === 8 // Only declare on first card
+    
+    return hasAnns && playing && turn && fullHand && !hasDecidedAnnouncement.value
+})
+
+const onDeclare = (decision: boolean) => {
+    declareAnnouncement(decision)
+    hasDecidedAnnouncement.value = true
+}
+
+// Reset decision on new round
+watch(() => gameState.value.phase, (newPhase) => {
+   if (newPhase === 'dealing') hasDecidedAnnouncement.value = false
+})
+
+const formatType = (type: string) => {
+  const map: Record<string, string> = {
+    'tierce': 'Tierce',
+    'quarte': 'Quarte',
+    'quinte': 'Quinte',
+    'square': 'Carré'
+  } 
+  return map[type] || type.toUpperCase()
+}
+
+const getValidAnnouncements = (pIdx: number) => {
+    if (pIdx === -1) return []
+    if (!gameState.value.players || !gameState.value.players[pIdx]) return []
+    const pId = gameState.value.players[pIdx].id
+    if (gameState.value.validAnnouncements && gameState.value.validAnnouncements[pId]) {
+        return gameState.value.validAnnouncements[pId]
+    }
+    return []
+}
 
 const humanCount = computed(() => {
     if (!gameState.value.players) return 0
@@ -1153,7 +1221,64 @@ const dynamicMargin = computed(() => {
 }
 
 /* Specific fix for modal buttons */
-.modal-overlay .chill-btn, .modal-content .chill-btn {
-    font-size: 1rem;
+/* Hand Animation (Enter from Bottom) */
+.hand-card-enter-active {
+  transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.hand-card-leave-active {
+  transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  position: absolute; /* Essential for smooth list reordering */
+}
+
+.hand-card-enter-from {
+  opacity: 0;
+  transform: translateY(200px) rotate(10deg); /* Start from bottom, slightly rotated */
+}
+
+/* Move animation for TransitionGroup */
+.hand-card-move {
+  transition: transform 0.5s ease;
+}
+
+.hand-card-leave-to {
+  opacity: 0;
+  transform: translateY(-200px); /* Leave to top (played) - though played cards usually handled by trick logic */
+}
+
+/* Ensure the wrapper respects transforms */
+.hand-card-wrapper {
+    transition: margin-right 0.3s ease, transform 0.3s ease, opacity 0.3s ease;
+    height: 135px;
+    width: 90px;
+    pointer-events: auto;
+    /* Important for the enter animation to not conflict */
+    display: block; 
+}
+</style>
+
+<style scoped>
+.announcements-display {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 5px;
+}
+
+.announcement-badge {
+    background: #ffd700;
+    color: #333;
+    font-weight: bold;
+    font-size: 0.7rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    border: 1px solid #b8860b;
+    animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes popIn {
+    from { transform: scale(0); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
 }
 </style>
